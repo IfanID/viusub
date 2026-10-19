@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ViuSub</string>
+
+    <string name="home_title">Running Man</string>
+    <string name="home_empty">Tidak ada episode cocok</string>
+    <string name="home_empty_initial">Belum ada data. Tekan muat ulang.</string>
+    <string name="home_range">Terlama %1$d  ·  Terbaru %2$d</string>
+    <string name="home_search_hint">Cari episode, nomor, atau tanggal</string>
+    <string name="home_query_short">Ketik minimal dua huruf.</string>
+    <string name="home_query_empty">Tidak ada hasil untuk \"%1$s\".</string>
+    <string name="home_query_results">%1$d hasil</string>
+
+    <string name="home_loading">Mengambil daftar episode…</string>
+    <string name="home_refresh">Muat Ulang</string>
+    <string name="home_cached">%1$d episode dari cache. Memperbarui…</string>
+    <string name="home_loaded">%1$d episode</string>
+    <string name="home_offline">Tidak bisa memperbarui. Menampilkan %1$d episode tersimpan.</string>
+    <string name="home_failed">Gagal mengambil daftar. Periksa koneksi lalu tekan Muat Ulang.</string>
+
+    <string name="btn_pick_folder">Pilih Folder</string>
+    <string name="btn_reset">Reset</string>
+    <string name="btn_save_json">Simpan JSON</string>
+    <string name="btn_save_srt">Simpan SRT</string>
+
+    <string name="chk_keep_screen_on">Layar tetap nyala saat merekam</string>
+
+    <string name="panel_idle">Menunggu subtitle…</string>
+
+    <string name="msg_no_folder">Pilih folder tujuan dulu (tombol Pilih Folder).</string>
+    <string name="msg_nothing">Belum ada cue yang terekam.</string>
+    <string name="msg_folder_ok">Tersimpan ke folder: %1$s</string>
+    <string name="msg_folder_denied">Folder itu tidak bisa ditulis. Coba folder lain.</string>
+    <string name="msg_saved">Tersimpan: %1$s</string>
+</resources>
