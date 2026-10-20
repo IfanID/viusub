@@ -1,8 +1,10 @@
 package dev.ifan.viusub
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -10,6 +12,7 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -69,6 +72,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Judul episode dari Intent (dikirim Home). Null kalau dibuka langsung. */
     private val episodeTitle: String? by lazy { intent?.getStringExtra(EXTRA_TITLE) }
+    private val episodeCover: String? by lazy { intent?.getStringExtra(EXTRA_COVER) }
     private var polling = false
     private var expanded = false
 
@@ -84,7 +88,27 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (!polling) return
             readPayload()
+            if (!splashDismissed && readyTick++ % 3 == 0) checkPlayerReady()
+            if (scriptTick++ % 20 == 0) reinstallPageScripts()
             mainHandler.postDelayed(this, POLL_MS)
+        }
+    }
+
+    /** Penanda layar sapaan sudah meluruh; poll kesiapan tidak perlu lagi. */
+    private var splashDismissed = false
+    private var readyTick = 0
+    private var scriptTick = 0
+    private var splashDots = 0
+    private var splashPulse: ValueAnimator? = null
+
+    /** Pengganti titik status "Menyiapkan…": berputar sampai pemain siap. */
+    private val splashDotsTask = object : Runnable {
+        override fun run() {
+            if (splashDismissed) return
+            splashDots++
+            binding.splashStatus.text = getString(R.string.splash_waiting) +
+                " " + "•".repeat((splashDots % 3) + 1)
+            mainHandler.postDelayed(this, 500)
         }
     }
 
@@ -120,6 +144,7 @@ class MainActivity : AppCompatActivity() {
         setupLiveBar()
 
         if (savedInstanceState == null) {
+            startSplash()
             binding.webView.loadUrl(startUrl)
         } else {
             binding.webView.restoreState(savedInstanceState)
@@ -275,10 +300,27 @@ class MainActivity : AppCompatActivity() {
 
         cookieManager.setAcceptThirdPartyCookies(binding.webView, true)
 
+        // Renderer tidak boleh turun prioritas hanya karena WebView
+        // tertutup layar sapaan: dokumen yang dianggap tersembunyi bisa
+        // di-throttle Chromium, dan loop 250 ms skrip fokus bisa mati.
+        binding.webView.setRendererPriorityPolicy(
+            WebView.RENDERER_PRIORITY_IMPORTANT,
+            true,
+        )
+
         binding.webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                // Skrip dipasang sedini mungkin supaya dokumen mana pun —
+                // termasuk hasil redirect di tengah-tengah muatan — langsung
+                // dipandu sejak awal; guard di kedua skrip membuat pemasangan
+                // ganda tidak berbahaya.
+                installPageScripts(view)
+            }
+
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
-                installRecorder(view)
+                installPageScripts(view)
             }
 
             override fun shouldOverrideUrlLoading(
@@ -397,11 +439,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Memasang perekam ke halaman. Aman dipanggil berulang: di awal skrip ada
-     * guard yang keluar kalau window.ViuSubRecorder sudah ada.
+     * Memasang skrip ke halaman: perekam subtitle dan mode "hanya pemain".
+     * Aman dipanggil berulang: keduanya punya guard di awal skrip yang
+     * keluar kalau penandanya sudah ada.
      */
-    private fun installRecorder(view: WebView) {
+    private fun installPageScripts(view: WebView) {
         view.evaluateJavascript(RecorderScript.SOURCE, null)
+        view.evaluateJavascript(PlayerFocusScript.SOURCE, null)
         lastRenderedLine = null
     }
 
@@ -483,6 +527,95 @@ class MainActivity : AppCompatActivity() {
         json
     }
 
+    // ---- layar sapaan ----
+
+    /**
+     * Layar sapaan dipasang sebelum halaman dimuat: thumbnail episode,
+     * judul, dan status yang titiknya berputar. Semuanya hidup sampai
+     * <video> di halaman benar-benar siap, lalu layarnya meluruh dan
+     * memperlihatkan pemain yang sudah dalam tampilan benar.
+     *
+     * Dilewati kalau layar ini dibuka tanpa URL episode (tanpa Home).
+     */
+    private fun startSplash() {
+        if (episodeTitle.isNullOrBlank() && episodeCover.isNullOrBlank()) return
+
+        binding.splashOverlay.alpha = 1f
+        binding.splashOverlay.visibility = View.VISIBLE
+
+        binding.splashTitle.text = episodeTitle.orEmpty()
+        binding.splashTitle.visibility =
+            if (episodeTitle.isNullOrBlank()) View.GONE else View.VISIBLE
+        episodeCover?.takeIf { it.isNotBlank() }?.let {
+            ThumbnailLoader.load(binding.splashCover, it)
+        }
+
+        binding.splashStatus.text = getString(R.string.splash_waiting)
+        binding.splashContent.translationY = 34f
+        binding.splashContent.alpha = 0f
+        binding.splashContent.animate()
+            .translationY(0f)
+            .alpha(1f)
+            .setDuration(360)
+            .setStartDelay(60)
+            .start()
+
+        splashPulse = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1700
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animation ->
+                val f = animation.animatedValue as Float
+                binding.splashCover.alpha = 0.62f + 0.38f * f
+                binding.splashCover.scaleX = 0.97f + 0.03f * f
+                binding.splashCover.scaleY = 0.97f + 0.03f * f
+            }
+            start()
+        }
+        mainHandler.post(splashDotsTask)
+        mainHandler.postDelayed({ dismissSplash() }, SPLASH_TIMEOUT_MS)
+    }
+
+    /**
+     * Cek kesiapan lewat EvaluateJavascript. Hanya "2" (zona pemain sudah
+     * dipromosikan, tampilan bentuk akhir) yang meluruhkan layar sapaan.
+     * Tidak meluruh sekadar karena halaman bersih: menunggu di layar
+     * sapaan lebih baik daripada melepas pengguna ke gua hitam sebelum
+     * pemain terpasang. Tidak menunggu video diputar.
+     */
+    private fun checkPlayerReady() {
+        binding.webView.evaluateJavascript(PlayerFocusScript.READ_READY) { raw ->
+            if (raw?.trim('"') == "2") dismissSplash()
+        }
+    }
+
+    /**
+     * Pasang ulang skrip halaman secara periodik — tanpa syarat URL: guard
+     * membuat pemasangan ulang diam bila skrip masih hidup, jadi ini murah.
+     * Tujuannya membangkitkan skrip yang tewas — dokumen baru hasil
+     * redirect, renderer yang diturunkan Chromium selagi WebView tertutup
+     * layar sapaan, dan sejenisnya.
+     */
+    private fun reinstallPageScripts() {
+        installPageScripts(binding.webView)
+    }
+
+    private fun dismissSplash() {
+        if (splashDismissed) return
+        splashDismissed = true
+        splashPulse?.cancel()
+        mainHandler.removeCallbacks(splashDotsTask)
+        binding.splashContent.animate().translationYBy(-16f).setDuration(340).start()
+        binding.splashOverlay.animate()
+            .alpha(0f)
+            .setDuration(340)
+            .withEndAction {
+                binding.splashOverlay.visibility = View.GONE
+            }
+            .start()
+    }
+
     // ---- tampilan ----
 
     private fun render(payload: VtrPayload) {
@@ -535,6 +668,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
+        splashPulse?.cancel()
         binding.webView.stopLoading()
         binding.webView.destroy()
         super.onDestroy()
@@ -546,6 +680,15 @@ class MainActivity : AppCompatActivity() {
         const val KEY_KEEP_SCREEN = "keep_screen_on"
         const val EXTRA_TITLE = "episode_title"
         const val EXTRA_URL = "episode_url"
+        const val EXTRA_COVER = "episode_cover"
+
+        /**
+         * Batas aman layar sapaan: pemain tak kunjung terpasang (jaringan
+         * lambat atau varian halaman tanpa pemain), layar tetap meluruh —
+         * jangan menyandera. Jaringan uji perangkat pernah 43 KB/s dan
+         * pemain baru terpasang beberapa detik kemudian, jadi tidak 15.
+         */
+        const val SPLASH_TIMEOUT_MS = 20000L
 
         // Ditulis sebagai escape supaya source tetap ASCII.
         const val CHEVRON_UP = "\u25B2"

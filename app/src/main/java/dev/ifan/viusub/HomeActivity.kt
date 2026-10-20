@@ -305,6 +305,7 @@ class HomeActivity : AppCompatActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_URL, episode.url)
             putExtra(MainActivity.EXTRA_TITLE, episode.title)
+            putExtra(MainActivity.EXTRA_COVER, episode.coverUrl)
         }
         startActivity(intent)
     }

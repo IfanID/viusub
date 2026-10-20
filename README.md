@@ -62,6 +62,27 @@ diurutkan dari episode terbaru ke yang terlama.
 
 - Bar melayang di bawah menampilkan **satu baris subtitle yang sedang live**.
   Diketuk, panel tombol muncul (Pilih Folder, Reset, Simpan JSON, Simpan SRT).
+- **Hanya pemain** (`PlayerFocusScript`): saat episode dibuka, seluruh chrome
+  halaman Viu — header, info episode, rekomendasi, footer — disembunyikan,
+  dan zona pemain diangkat memenuhi layar. Kotak video dibikin 16:9 melebar
+  penuh dan menempel ke atas, jadi overlay subtitle ikut kotak video (bukan
+  jatuh ke dasar layar), sisanya hitam bersama kontrol pemain. Semuanya
+  cukup disembunyikan (`display:none`) — tidak ada simpul yang dihapus
+  dari DOM, cara sederhana yang teruji. Termasuk di dalam zona: kotak
+  sisi grid (info + daftar episode yang pada layar sempit tumpuk di
+  bawah pemain) ikut disembunyikan, dan setiap calon korban diperiksa:
+  elemen `bmpui` — kontrol, overlay subtitle, menu — atau wadah yang
+  memuatnya tidak pernah disembunyikan, dari jalur mana pun. Pembersihannya
+  dikejar setiap 250 ms (tahan hidrasi dan perpindahan SPA). Kalau pemain
+  tidak muncul, halaman tetap seperti versi bersihnya saja.
+- **Layar sapaan**: begitu episode diketuk dari Home, tampil dulu thumbnail,
+  judul, dan status "Menyiapkan pemain…" yang titiknya berputar, dengan
+  thumbnail berdenyut halus. Layar dipegang sampai zona pemain BETUL-BETUL
+  terpasang (`__ViuSubFocusReady = '1'`) — menunggu di layar sapaan lebih
+  dipilih daripada melepas pengguna ke gua hitam — lalu meluruh
+  memperlihatkan pemain dalam tampilan yang sudah benar, tanpa menunggu
+  video mulai diputar. Batas aman 20 detik; layar yang dibuka tanpa
+  episode tidak memunculkan layar sapaan.
 - **Indikator nomor cue** di pojok kiri atas berisi satu angka saja: jumlah
   cue yang sudah terekam. Angka diambil dari `cueCount` di payload penuh,
   bukan dari daftar yang dipangkas, jadi tidak pernah macet di 30.
@@ -280,6 +301,7 @@ app/src/main/
 │   ├── HomeActivity.kt         layar Home
 │   ├── MainActivity.kt         layar pemutar + ekspor + fullscreen
 │   ├── PayloadFormatter.kt     format teks panel
+│   ├── PlayerFocusScript.kt    skrip "hanya pemain", sebagai Kotlin constant
 │   ├── RecorderScript.kt       kode JS perekam, sebagai Kotlin constant
 │   ├── SrtWriter.kt            penyusun file .srt
 │   ├── StickyYearDecoration.kt header tahun lengket

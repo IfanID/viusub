@@ -36,6 +36,70 @@
     </FrameLayout>
 
     <!--
+      Layar sapaan. Muncul sesaat setelah episode diketuk dari Home:
+      thumbnail, judul, dan status menyiapkan pemain. Meluruh keluar begitu
+      <video> di halaman hidup, supaya yang terlihat setelahnya adalah
+      pemain dalam tampilan yang sudah benar — bukan halaman yang setengah
+      terpasang.
+
+      Sengaja clickable: selama pemain belum siap, sentuhan ditahan di
+      sini supaya tidak mengenai area WebView yang belum siap.
+    -->
+    <FrameLayout
+        android:id="@+id/splashOverlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <LinearLayout
+            android:id="@+id/splashContent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingStart="28dp"
+            android:paddingEnd="28dp">
+
+            <ImageView
+                android:id="@+id/splashCover"
+                android:layout_width="220dp"
+                android:layout_height="124dp"
+                android:background="@drawable/bg_thumb"
+                android:clipToOutline="true"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+
+            <TextView
+                android:id="@+id/splashTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:maxLines="2"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/splashStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="7dp"
+                android:textColor="#99FFFFFF"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!--
       Indikator nomor cue. Isinya satu angka saja: jumlah cue yang sudah
       terekam. Ditaruh di pojok kiri atas karena di situ tidak ada tombol
       pemutar, jadi tidak pernah menutupi kontrol yang perlu ditekan.
