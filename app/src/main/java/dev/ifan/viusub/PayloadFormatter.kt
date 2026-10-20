@@ -14,6 +14,7 @@ object PayloadFormatter {
     // Ditulis sebagai escape supaya source tetap ASCII.
     private const val ELLIPSIS = "\u2026"
     private const val RUNNING = "\u25B8"
+    private const val FINISHED = "\u2713"
 
     fun status(p: VtrPayload): String = buildString {
         append("cue=").append(p.cueCount)
@@ -71,16 +72,24 @@ object PayloadFormatter {
     }
 
     /**
-     * Satu baris teks yang sedang tampil di video.
+     * Satu baris teks untuk bar melayang.
      *
-     * Utamakan cue yang masih berjalan (pending), karena itulah yang benar-benar
-     * terlihat sekarang. Kalau sedang jeda antar subtitle, pakai cue terakhir
-     * yang sudah selesai supaya bar tidak kosong melompong.
+     * Tiga keadaan yang dibedakan dengan awalan:
+     *   "▸ teks" — cue benar-benar sedang tampil di video (live);
+     *   "✓ teks" — cue terakhir yang sudah selesai; bar tidak dikosongkan
+     *              supaya tidak berkedip di setiap jeda antar dialog,
+     *              tetapi ditampilkan dengan warna redup oleh pemanggil
+     *              supaya mata tahu itu bukan yang sedang live;
+     *   ""       — belum ada cue sama sekali (pemanggil menampilkan
+     *              "Menunggu subtitle…").
      */
     fun liveLine(p: VtrPayload): String {
         p.pendingCues.firstOrNull()?.let { return "$RUNNING ${it.text}" }
-        return p.cues.lastOrNull()?.text.orEmpty()
+        return p.cues.lastOrNull()?.text?.let { "$FINISHED $it" }.orEmpty()
     }
+
+    /** Apakah ada cue yang benar-benar sedang tampil di video saat ini. */
+    fun hasLiveCue(p: VtrPayload): Boolean = p.pendingCues.isNotEmpty()
 
     /** Mengubah HH:MM:SS.mmm menjadi detik pecahan, 0 kalau tidak terbaca. */
     fun parseTime(value: String?): Double {

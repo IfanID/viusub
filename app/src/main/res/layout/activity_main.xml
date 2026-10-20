@@ -101,8 +101,8 @@
 
     <!--
       Indikator nomor cue. Isinya satu angka saja: jumlah cue yang sudah
-      terekam. Ditaruh di pojok kiri atas karena di situ tidak ada tombol
-      pemutar, jadi tidak pernah menutupi kontrol yang perlu ditekan.
+      terekam. Hanya muncul saat video fullscreen; di tampilan biasa
+      disembunyikan supaya pojok layar bersih.
 
       Sengaja tidak clickable/focusable: view yang tidak mengonsumsi
       sentuhan akan dilewati, dan event-nya jatuh ke WebView di

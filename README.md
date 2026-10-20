@@ -60,8 +60,12 @@ diurutkan dari episode terbaru ke yang terlama.
 └─────────────────────────────────┘
 ```
 
-- Bar melayang di bawah menampilkan **satu baris subtitle yang sedang live**.
-  Diketuk, panel tombol muncul (Pilih Folder, Reset, Simpan JSON, Simpan SRT).
+- Bar melayang di bawah menampilkan **satu baris subtitle**. Statusnya jujur
+  lewat awalan dan warna: `▸ teks` cyan saat cue benar-benar sedang tampil;
+  `✓ teks` redup saat cue itu sudah lewat (bar tidak dikosongkan supaya tidak
+  berkedip di setiap jeda); dan "Menunggu subtitle…" redup saat belum ada
+  cue sama sekali. Diketuk, panel tombol muncul (Pilih Folder, Reset,
+  Simpan JSON, Simpan SRT).
 - **Hanya pemain** (`PlayerFocusScript`): saat episode dibuka, seluruh chrome
   halaman Viu — header, info episode, rekomendasi, footer — disembunyikan,
   dan zona pemain diangkat memenuhi layar. Kotak video dibikin 16:9 melebar
@@ -84,9 +88,11 @@ diurutkan dari episode terbaru ke yang terlama.
   video mulai diputar. Batas aman 20 detik; layar yang dibuka tanpa
   episode tidak memunculkan layar sapaan.
 - **Indikator nomor cue** di pojok kiri atas berisi satu angka saja: jumlah
-  cue yang sudah terekam. Angka diambil dari `cueCount` di payload penuh,
-  bukan dari daftar yang dipangkas, jadi tidak pernah macet di 30.
-  Sengaja `clickable=false` supaya sentuhan di area itu tetap jatuh ke WebView.
+  cue yang sudah terekam. Hanya tampil saat video **fullscreen**; di tampilan
+  biasa disembunyikan supaya pojok layar bersih. Angka diambil dari `cueCount`
+  di payload penuh, bukan dari daftar yang dipangkas, jadi tidak pernah macet
+  di 30. Sengaja `clickable=false` supaya sentuhan di area itu tetap jatuh ke
+  WebView.
 - **Fullscreen** didukung lewat `WebChromeClient.onShowCustomView`. Tanpa itu,
   `requestFullscreen()` dari halaman ditolak diam-diam dan tombol fullscreen
   tidak berefek.

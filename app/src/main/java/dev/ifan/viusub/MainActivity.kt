@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -253,8 +254,8 @@ class MainActivity : AppCompatActivity() {
      *
      * The system bar is hidden so the video really fills the screen, and the
      * floating bar is hidden because it sits at the bottom — exactly where the
-     * player's own control bar is. The badge is intentionally kept: that is
-     * the cue number indicator.
+     * player's own control bar is. The cue number badge appears only while
+     * fullscreen, so the normal view stays clean.
      */
     private fun applyFullscreenChrome(enabled: Boolean) {
         val controller = WindowInsetsControllerCompat(window, binding.root)
@@ -273,6 +274,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.liveBar.visibility = if (enabled) View.GONE else View.VISIBLE
+
+        // Angka cue hanya tampil selama fullscreen.
+        refreshCueBadge()
 
         // The padding is recalculated from the new insets.
         ViewCompat.requestApplyInsets(binding.root)
@@ -628,6 +632,19 @@ class MainActivity : AppCompatActivity() {
             lastRenderedLine = line
             binding.liveText.text = line.ifBlank { getString(R.string.panel_idle) }
         }
+        // Warna jujur soal status: cue live disorot aksen; teks terakhir
+        // yang sudah selesai (✓) dan keadaan menunggu ditampilkan redup,
+        // supaya mata tahu mana yang benar-benar sedang tampil di video.
+        binding.liveText.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (PayloadFormatter.hasLiveCue(payload)) {
+                    R.color.panel_accent
+                } else {
+                    R.color.meta_text
+                },
+            ),
+        )
 
         // Status hanya perlu diperbarui saat panel terbuka.
         if (!expanded) return
@@ -652,12 +669,23 @@ class MainActivity : AppCompatActivity() {
         if (jumlah == lastCueNumber) return
         lastCueNumber = jumlah
         binding.cueBadge.text = jumlah.toString()
-        binding.cueBadge.visibility = if (jumlah > 0) View.VISIBLE else View.GONE
+        refreshCueBadge()
+    }
+
+    /**
+     * Angka cue hanya tampil selama video fullscreen. Di tampilan biasa,
+     * pojok kiri atas dibiarkan bersih — angka tak mengambang terus dan
+     * tidak menutupi hal lain.
+     */
+    private fun refreshCueBadge() {
+        binding.cueBadge.visibility =
+            if (inFullscreen && lastCueNumber > 0) View.VISIBLE else View.GONE
     }
 
     /** Menampilkan pesan singkat di bar (mis. hasil ekspor). */
     private fun say(message: String) {
         binding.liveText.text = message
+        binding.liveText.setTextColor(ContextCompat.getColor(this, R.color.panel_accent))
         lastRenderedLine = message
     }
 
