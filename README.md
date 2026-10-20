@@ -102,10 +102,42 @@ diurutkan dari episode terbaru ke yang terlama.
   snapshot penuh lewat `READ_FULL` diambil otomatis saat pertama kali atau
   saat terdeteksi ada celah, jadi seluruh rekaman tampil tanpa tombol
   "Muat semua".
-  Mengetuk satu baris **melompat ke detik itu** — perekam sudah punya dedupe
-  teks + waktu, jadi memutar ulang tidak menggandakan cue. Lompatan memakai
-  elemen `<video>` yang sama dengan perekam, bukan video pertama di DOM; kalau
-  tidak ada video yang bisa dipakai, muncul pesan gagal. Panel hilang saat
+  Mengetuk satu baris **melompat ke detik awal cue itu** — perekam sudah punya
+  dedupe teks + waktu, jadi memutar ulang tidak menggandakan cue. Lompatan
+  memakai heuristik yang sama dengan perekam, tetapi juga menelusuri shadow
+  root/iframe se-origin dan memakai durasi untuk menghindari iklan atau
+  pratinjau pendek. Video yang lebih baru dipilih ulang kalau cue berada di
+  luar durasinya. Cue pertama (target di bawah 1 detik) tidak ditulis
+  langsung ke currentTime: perekam memakai kontrol Home pada seek bar
+  Bitmovin (player.seek(0)), dengan fallback jeda–seek–play, karena seek
+  langsung ke awal stream membuat Bitmovin memuat ulang lalu berhenti di
+  frame pertama. Klik berulang pada baris yang sudah aktif tidak menyentuh
+  pemutar lagi; toleransi posisi 0,3 detik (0,5 detik untuk cue awal) juga
+  meredam tap/Enter kedua yang jatuh hampir di posisi yang sama. Kalau
+  pemutar masih memproses seek pertama (kurang dari 2,5 detik), tap kedua
+  ditolak dengan pesan bahwa pemutar masih sibuk — dua seek beruntun saat
+  Bitmovin belum selesai justru bisa membuatnya tersendat. Seek tidak diulang otomatis. Kalau skrip halaman belum
+  terpasang atau video belum muncul, klik dicoba ulang sekali; kegagalan baru
+  dilaporkan setelah itu. Sesudah lompatan, teks subtitle yang masih
+  tertinggal dari posisi lama tidak dicatat sebagai cue baru — perekam
+  menunggu overlay benar-benar berganti. Daftar menampilkan garis pemisah
+  **"N cue baru sejak lompat ke …"** (atau "belum ada cue baru") tepat di
+  bawah baris yang terekam setelah lompatan, jadi cue lama dan cue hasil
+  lompatan bisa dibedakan. Garis itu hilang sendiri setelah posisi video
+  melewati cue lama terakhir (titik sebelum lompatan), karena setelah itu
+  semua cue di depan adalah rekaman baru. Kalau video dimundurkan ke bagian
+  yang sudah pernah terekam, subtitle yang tampil lagi dikenali sebagai
+  **putar ulang** lewat kecocokan teks dan rentang waktunya. Baris di puncak
+  memakai nomor serta waktu selesai cue lama (mis. `4 · 00:05 → 00:08`)
+  dengan tanda `↺`, dan cue ulang tidak ditambahkan ke rekaman. Statistik
+  menampilkan jumlahnya sebagai `ulang`, bukan `live`. Kalau pemutar
+  Bitmovin tetap berhenti di frame pertama sesudah seek/rewind — status
+  masih "playing" tetapi waktu tidak maju — perekam menunggu empat detik,
+  lalu mendorong posisi 0,5 detik untuk memancing segmen baru; percobaan
+  kedua memakai 1,0 detik dari posisi macet, bukan mengirim target yang
+  sama lagi. Setiap seek baru dari pengguna membuka jendela pemulihan baru.
+  Pemulihan ini tidak berjalan saat video di-pause, jadi berhenti untuk
+  membaca subtitle tetap aman. Panel hilang saat
   fullscreen atau saat sisa ruang di atas panel kontrol kurang dari 140dp.
 - **Notifikasi simpan** muncul tepat di atas panel kontrol, dekat dengan
   tombol yang ditekan dan tidak menutupi video.

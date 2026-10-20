@@ -34,7 +34,10 @@
     <string name="transcript_waiting">Belum ada cue — tekan putar di video.</string>
     <string name="transcript_jump_live_symbol">&#x2191;</string>
     <string name="transcript_jump_live_desc">Kembali ke live</string>
+    <string name="transcript_seek_mark">%1$d cue baru sejak lompat ke %2$s</string>
+    <string name="transcript_seek_none">belum ada cue baru sejak lompat ke %1$s</string>
     <string name="msg_seek">Lompat ke %1$s</string>
+    <string name="msg_seek_busy">Pemutar masih memproses lompatan sebelumnya — coba lagi.</string>
     <string name="msg_seek_failed">Tidak bisa melompat — video tidak ditemukan.</string>
 
     <string name="msg_no_folder">Pilih folder tujuan dulu (tombol Pilih Folder).</string>

@@ -17,13 +17,17 @@ object PayloadFormatter {
     private const val ELLIPSIS = "\u2026"
     private const val RUNNING = "\u25B8"
     private const val FINISHED = "\u2713"
+    private const val REPLAY = "\u21BA"
 
     fun status(p: VtrPayload): String = buildString {
         append("cue=").append(p.cueCount)
         if (p.restoredCount > 0 && p.cueCount == p.restoredCount) {
             append("  (dipulihkan)")
         }
-        if (p.pending > 0) append("  (+").append(p.pending).append(" berjalan)")
+        val liveCount = p.pendingCues.count { !it.replay }
+        val replayCount = p.pendingCues.count { it.replay }
+        if (liveCount > 0) append("  (+").append(liveCount).append(" berjalan)")
+        if (replayCount > 0) append("  (ulang ").append(replayCount).append(')')
 
         append('\n')
         append(p.position ?: "--:--:--")
@@ -63,8 +67,13 @@ object PayloadFormatter {
      */
     fun transcriptStats(p: VtrPayload): String = buildString {
         append("cue ").append(p.cueCount)
-        if (p.pending > 0) {
-            append("  ").append(RUNNING).append(' ').append(p.pending).append(" live")
+        val liveCount = p.pendingCues.count { !it.replay }
+        val replayCount = p.pendingCues.count { it.replay }
+        if (liveCount > 0) {
+            append("  ").append(RUNNING).append(' ').append(liveCount).append(" live")
+        }
+        if (replayCount > 0) {
+            append("  ").append(REPLAY).append(' ').append(replayCount).append(" ulang")
         }
         append("  ·  cakupan ").append(p.coveragePercent ?: "-").append('%')
         if (p.gapCount > 0) append("  ·  lubang ").append(p.gapCount)
@@ -109,7 +118,9 @@ object PayloadFormatter {
             lines.add("${c.index}. ${c.start}  ${c.text}")
         }
         for (pc in p.pendingCues) {
-            lines.add("${pc.index}. $RUNNING ${pc.start}  ${pc.text}")
+            val mark = if (pc.replay) "$REPLAY ulang" else RUNNING
+            val end = if (pc.replay) " \u2192 ${clock(pc.end)}" else ""
+            lines.add("${pc.index}. $mark ${pc.start}$end  ${pc.text}")
         }
         return lines.joinToString("\n")
     }
@@ -117,8 +128,9 @@ object PayloadFormatter {
     /**
      * Satu baris teks untuk bar melayang.
      *
-     * Tiga keadaan yang dibedakan dengan awalan:
-     *   "▸ teks" — cue benar-benar sedang tampil di video (live);
+     * Empat keadaan yang dibedakan dengan awalan:
+     *   "▸ teks" — cue baru yang benar-benar sedang tampil di video (live);
+     *   "↺ teks" — cue lama yang sedang diputar ulang;
      *   "✓ teks" — cue terakhir yang sudah selesai; bar tidak dikosongkan
      *              supaya tidak berkedip di setiap jeda antar dialog,
      *              tetapi ditampilkan dengan warna redup oleh pemanggil
@@ -127,7 +139,9 @@ object PayloadFormatter {
      *              "Menunggu subtitle…").
      */
     fun liveLine(p: VtrPayload): String {
-        p.pendingCues.firstOrNull()?.let { return "$RUNNING ${it.text}" }
+        p.pendingCues.firstOrNull()?.let {
+            return if (it.replay) "$REPLAY ${it.text}" else "$RUNNING ${it.text}"
+        }
         return p.cues.lastOrNull()?.text?.let { "$FINISHED $it" }.orEmpty()
     }
 

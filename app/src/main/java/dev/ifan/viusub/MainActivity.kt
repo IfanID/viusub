@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
     private var layoutTick = 0
     private var transcriptTick = 0
 
-    private val transcriptAdapter = TranscriptAdapter { seconds -> seekTo(seconds) }
+    private val transcriptAdapter = TranscriptAdapter(this) { seconds -> seekTo(seconds) }
 
     /**
      * Seluruh cue yang sudah terekam; null selama snapshot penuh belum
@@ -537,6 +537,7 @@ class MainActivity : AppCompatActivity() {
         allCues = null
         loadingAllCues = false
         followLive = true
+        transcriptAdapter.clearSeekMark()
         updateJumpLive()
     }
 
@@ -654,6 +655,9 @@ class MainActivity : AppCompatActivity() {
         // Kalau jumlah cue menyusut, snapshot lama sudah tidak berlaku.
         if (cached != null && payload.cueCount < cached.size) {
             allCues = null
+            // Indeks cue mulai dari 1 lagi setelah rute/episode berganti,
+            // jadi batas lompatan lama tidak berlaku untuk rekaman baru.
+            transcriptAdapter.clearSeekMark()
         }
         val full = allCues
         val cues = if (full == null) {
@@ -677,7 +681,11 @@ class MainActivity : AppCompatActivity() {
         // ada pembaruan — termasuk saat cue live berganti tanpa jumlah
         // baris berubah. Kalau pengguna sedang membaca cue lama, posisinya
         // tidak direbut.
-        transcriptAdapter.submit(cues, payload.pendingCues)
+        transcriptAdapter.submit(
+            cues,
+            payload.pendingCues,
+            PayloadFormatter.parseTime(payload.position),
+        )
         if (followLive) {
             binding.transcriptList.scrollToPosition(0)
         }
@@ -715,15 +723,57 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Melompat ke awal cue yang diketuk di transkrip. */
-    private fun seekTo(seconds: Double) {
+    /**
+     * Melompat ke awal cue yang diketuk di transkrip.
+     *
+     * Skrip halaman bisa belum terpasang (perpindahan SPA atau muat ulang)
+     * atau elemen video belum muncul saat pemutar masih dimuat. Untuk dua
+     * kasus itu klik diulang sekali: skrip dipasang ulang, lalu seek dicoba
+     * lagi setelah jeda pendek. Kegagalan baru dilaporkan kalau percobaan
+     * kedua juga tidak menemukan video.
+     */
+    private fun seekTo(seconds: Double, retry: Boolean = true) {
         binding.webView.evaluateJavascript(RecorderScript.seek(seconds)) { raw ->
-            if (raw?.trim('"') == "true") {
-                announce(getString(R.string.msg_seek, PayloadFormatter.clock(seconds)))
-            } else {
-                announce(getString(R.string.msg_seek_failed), error = true)
+            val result = parseSeekResult(raw)
+            if (result?.optString("reason") == "busy") {
+                // Tap/Enter kedua datang saat seek pertama belum selesai.
+                // Jangan menumpuk seek: lompatan pertama dibiarkan selesai.
+                announce(getString(R.string.msg_seek_busy))
+                return@evaluateJavascript
             }
+            if (result?.optBoolean("ok") == true) {
+                // target dari halaman sudah dijepit ke durasi video, jadi
+                // notifikasi tidak menjanjikan waktu yang tidak ada.
+                val target = result.optDouble("target", seconds)
+                // cueCount adalah jumlah cue selesai SEBELUM lompatan;
+                // baris di atas angka itu nanti ditandai sebagai cue baru.
+                transcriptAdapter.markSeek(
+                    cueCount = result.optInt("cueCount", 0),
+                    clock = PayloadFormatter.clock(target),
+                )
+                announce(getString(R.string.msg_seek, PayloadFormatter.clock(target)))
+                // Garis pemisah muncul pada pembaruan transkrip berikutnya;
+                // payload lama tidak dipakai supaya deteksi "cue menyusut"
+                // (perpindahan episode) tidak salah menghapus batas ini.
+                return@evaluateJavascript
+            }
+            if (retry) {
+                if (result?.optString("reason") == "no-script") {
+                    installPageScripts(binding.webView)
+                }
+                mainHandler.postDelayed({ seekTo(seconds, retry = false) }, 400)
+                return@evaluateJavascript
+            }
+            announce(getString(R.string.msg_seek_failed), error = true)
         }
+    }
+
+    /** Hasil seek dari halaman berupa JSON; null kalau tidak terbaca. */
+    private fun parseSeekResult(raw: String?): JSONObject? = try {
+        val json = raw?.let { unquote(it) } ?: return null
+        JSONObject(json)
+    } catch (e: Exception) {
+        null
     }
 
     private fun applyKeepScreenOn(enable: Boolean, save: Boolean) {

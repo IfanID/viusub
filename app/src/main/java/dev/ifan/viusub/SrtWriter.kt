@@ -69,11 +69,14 @@ object SrtWriter {
         // ini, subtitle terakhir yang terlihat (misalnya saat video
         // di-pause di akhir) terdeteksi di panel tapi tidak ikut tersimpan.
         //
+        // Cue ulang (replay) tidak pernah masuk cues dan tidak boleh ikut
+        // diekspor: isinya sudah ada di cue lama dengan end yang benar.
+        //
         // End-nya memakai posisi putar saat ekspor. Kalau posisi belum
         // melewati start, cue dilewati karena durasinya tidak valid.
         val position = payload.position
         if (!position.isNullOrBlank()) {
-            payload.pendingCues.forEachIndexed { i, pending ->
+            payload.pendingCues.filterNot { it.replay }.forEachIndexed { i, pending ->
                 if (position > pending.start) {
                     entries.add(
                         VtrPayload.Cue(

@@ -63,6 +63,33 @@ object RecorderScript {
   var lastTime = 0;
   var lastPath = location.pathname;
 
+  // Teks subtitle yang tampil tepat sebelum seek. Overlay pemutar sering
+  // masih memperlihatkan teks itu beberapa saat setelah lompatan; teks
+  // yang sama tidak boleh dicatat sebagai cue baru di posisi tujuan.
+  // Penahan dilepas begitu overlay benar-benar berganti atau menghilang.
+  var staleTexts = null;
+
+  // Bitmovin kadang berhenti di frame pertama setelah seek/rewind walau
+  // statusnya masih "playing". Mendorong posisi 0,5 detik biasanya memancing
+  // pemutar mengambil segmen lagi tanpa perlu memuat ulang halaman.
+  var seekRecovery = {
+    at: 0,
+    tries: 0,
+    base: -1,
+    nudgeTarget: -1,
+    nudgePending: false,
+    seekingSince: 0,
+    uiPendingUntil: 0,
+    lastTime: -1,
+    lastProgress: 0,
+    lastNudge: 0
+  };
+
+  // Hasil terakhir findReplay per teks. Overlay subtitle Viu bisa membuat
+  // ulang elemen yang sama berkali-kali; tanpa cache, setiap elemen baru
+  // memicu pemindaian seluruh cue. Cache dibuang setiap kali cue berubah.
+  var replayCache = {};
+
   function getVideo() {
     var vs = document.querySelectorAll('video');
     var best = null, bestArea = 0;
@@ -76,6 +103,65 @@ object RecorderScript {
     }
     if (best) return best;
     return vs.length ? vs[0] : null;
+  }
+
+  // Semua <video> yang bisa dijangkau, termasuk yang berada di shadow root
+  // terbuka dan iframe se-origin. getVideo() hanya memindai dokumen utama,
+  // jadi elemen pemutar yang dibungkus komponen web bisa lolos.
+  function allVideos() {
+    var found = [];
+    var roots = [document];
+    while (roots.length) {
+      var root = roots.pop();
+      var vids = [];
+      try { vids = root.querySelectorAll('video'); } catch (e) { vids = []; }
+      for (var i = 0; i < vids.length; i++) {
+        if (found.indexOf(vids[i]) === -1) found.push(vids[i]);
+      }
+      var nodes = [];
+      try { nodes = root.querySelectorAll('*'); } catch (e) { nodes = []; }
+      for (var j = 0; j < nodes.length; j++) {
+        var node = nodes[j];
+        if (node.shadowRoot && roots.indexOf(node.shadowRoot) === -1) {
+          roots.push(node.shadowRoot);
+        }
+        if (node.tagName === 'IFRAME') {
+          var doc = null;
+          try { doc = node.contentDocument; } catch (e) { doc = null; }
+          if (doc && roots.indexOf(doc) === -1) roots.push(doc);
+        }
+      }
+    }
+    return found;
+  }
+
+  // Memilih video yang paling masuk akal untuk lompatan. Selain luas dan
+  // status putar, durasi dipakai sebagai penyaring: cue pada menit ke-60
+  // tidak mungkin berada di video iklan/pratinjau yang hanya 30 detik.
+  function seekVideo(target) {
+    var hint = getVideo();
+    var list = allVideos();
+    var best = null, bestScore = -1;
+    for (var i = 0; i < list.length; i++) {
+      var v = list[i];
+      var area = 0;
+      try {
+        var r = v.getBoundingClientRect();
+        area = Math.max(0, r.width) * Math.max(0, r.height);
+      } catch (e) { area = 0; }
+      var playing = !v.paused && !v.ended;
+      var ready = v.readyState > 0 || v.videoWidth > 0;
+      var longEnough = !(isFinite(v.duration) && v.duration > 0) ||
+        v.duration + 1 >= target;
+      var score = (area + 1) *
+        (playing ? 2 : 1) *
+        (ready ? 2 : 1) *
+        (longEnough ? 4 : 1);
+      if (v === hint) score *= 1.5;
+      if (score > bestScore) { bestScore = score; best = v; }
+    }
+    if (best) return best;
+    return hint || (list.length ? list[0] : null);
   }
 
   function collect() {
@@ -136,6 +222,53 @@ object RecorderScript {
     return out;
   }
 
+  // Membandingkan teks tanpa beda spasi atau kapital.
+  function normText(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  // Cue lama bisa berupa gabungan beberapa baris. Saat diputar ulang,
+  // Viu kadang menampilkan baris-baris itu terpisah lagi.
+  function sameSubtitle(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length < 6 || b.length < 6) return false;
+    return a.indexOf(b) !== -1 || b.indexOf(a) !== -1;
+  }
+
+  // Mencari cue selesai yang sekarang tampil lagi. Ini yang membedakan
+  // "memutar ulang bagian lama" dari "merekam cue baru": kalau teks dan
+  // waktunya cocok dengan cue lama, jangan beri nomor baru dan jangan
+  // biarkan end-nya kosong.
+  function findReplay(text, now) {
+    var norm = normText(text);
+    if (!norm) return null;
+
+    var cached = replayCache[norm];
+    if (cached && now >= cached.start - 1.0 && now <= cached.end + 1.0) {
+      return cached;
+    }
+
+    var best = null;
+    var bestDist = Infinity;
+    for (var i = cues.length - 1; i >= 0; i--) {
+      var c = cues[i];
+      // Toleransi 1 detik: overlay saat diputar ulang bisa muncul sedikit
+      // lebih awal atau lebih lambat dari rekaman pertama.
+      if (now < c.start - 1.0 || now > c.end + 1.0) continue;
+      if (!sameSubtitle(c._norm || normText(c.text), norm)) continue;
+      var dist = Math.abs(now - c.start);
+      if (dist < bestDist) {
+        best = c;
+        bestDist = dist;
+      }
+    }
+
+    if (best) replayCache[norm] = best;
+    else if (cached) delete replayCache[norm];
+    return best;
+  }
+
   function scan() {
     var v = getVideo();
     if (!v) return;
@@ -144,18 +277,46 @@ object RecorderScript {
     lastTime = now;
 
     var cands = collect();
+
+    // Overlay subtitle di Viu diperbarui beberapa saat setelah currentTime
+    // melompat. Selama teks yang sama dengan sebelum seek masih terlihat,
+    // itu sisa posisi lama, bukan cue baru di posisi tujuan.
+    if (staleTexts) {
+      var staleStillShown = false;
+      for (var s = 0; s < cands.length; s++) {
+        if (staleTexts.has(cands[s].text)) { staleStillShown = true; break; }
+      }
+      // Teks lama sudah tergantikan atau hilang; cue berikutnya diterima.
+      if (!staleStillShown) staleTexts = null;
+    }
+
     var present = new Set();
 
     for (var i = 0; i < cands.length; i++) {
       var c = cands[i];
+      if (staleTexts && staleTexts.has(c.text)) continue;
       present.add(c.el);
 
       var rec = live.get(c.el);
+      var oldCue = null;
       if (!rec) {
-        live.set(c.el, { start: now, text: c.text, top: c.top });
+        oldCue = findReplay(c.text, now);
+        live.set(c.el, {
+          start: oldCue ? oldCue.start : now,
+          text: c.text,
+          top: c.top,
+          replayCue: oldCue
+        });
       } else if (rec.text !== c.text) {
-        push(rec.start, now, rec.text, rec.top);
-        live.set(c.el, { start: now, text: c.text, top: c.top });
+        // Cue ulang tidak pernah masuk daftar rekaman.
+        if (!rec.replayCue) push(rec.start, now, rec.text, rec.top);
+        oldCue = findReplay(c.text, now);
+        live.set(c.el, {
+          start: oldCue ? oldCue.start : now,
+          text: c.text,
+          top: c.top,
+          replayCue: oldCue
+        });
       } else {
         rec.top = c.top;
       }
@@ -163,7 +324,7 @@ object RecorderScript {
 
     live.forEach(function (rec, el) {
       if (!present.has(el)) {
-        push(rec.start, now, rec.text, rec.top);
+        if (!rec.replayCue) push(rec.start, now, rec.text, rec.top);
         live.delete(el);
       }
     });
@@ -180,17 +341,151 @@ object RecorderScript {
    */
   function flushLive() {
     var end = lastTime;
+    var stale = null;
     live.forEach(function (rec) {
-      if (end > rec.start) push(rec.start, end, rec.text, rec.top);
+      if (!rec.replayCue && end > rec.start) {
+        push(rec.start, end, rec.text, rec.top);
+      }
+      if (!stale) stale = new Set();
+      stale.add(rec.text);
     });
     live.clear();
+    // Simpan teks yang barusan tampil supaya scan sesudah seek tidak
+    // menganggap overlay lama sebagai subtitle baru di posisi tujuan.
+    if (stale) staleTexts = stale;
+  }
+
+  /**
+   * Bitmovin kadang berhenti di frame pertama sesudah seek/rewind walau
+   * statusnya masih "playing": currentTime tidak maju, gambar diam. Seek
+   * kecil ke posisi lain adalah cara yang dilaporkan berhasil di forum
+   * Bitmovin — decoder dipancing mengambil segmen lagi.
+   *
+   * Jendela pemulihan dibuka oleh event seeking/seeked. Kalau tidak ada
+   * kemajuan selama 4 detik di dalam jendela itu, posisi didorong 0,5 detik
+   * lalu 1,0 detik dari posisi macet, maksimal dua kali. Setiap seek baru
+   * dari pengguna membuka jendela baru. Saat video di-pause, pemulihan tidak
+   * berjalan, jadi berhenti untuk membaca subtitle tidak terganggu.
+   */
+  function armSeekRecovery(ev) {
+    var now = Date.now();
+    var v = getVideo();
+    var t = v ? v.currentTime : -1;
+
+    if (ev && ev.type === 'seeking') {
+      seekRecovery.seekingSince = now;
+    } else if (ev && ev.type === 'seeked') {
+      seekRecovery.seekingSince = 0;
+    }
+
+    // Event seeking/seeked milik dorongan kita sendiri tidak membuka
+    // jendela baru; kalau dibuka, percobaan kedua tidak akan pernah habis.
+    // Nudge bisa dilaporkan pemutar pada posisi lama atau posisi target,
+    // jadi keduanya dianggap milik watchdog. Seek pengguna ke posisi lain
+    // tetap dianggap baru.
+    var mine = false;
+    if (seekRecovery.nudgePending) {
+      var recent = seekRecovery.lastNudge &&
+        now - seekRecovery.lastNudge < 3000;
+      var nearTarget = seekRecovery.nudgeTarget >= 0 && t >= 0 &&
+        Math.abs(t - seekRecovery.nudgeTarget) < 0.6;
+      var nearBase = seekRecovery.base >= 0 && t >= 0 &&
+        Math.abs(t - seekRecovery.base) < 0.6;
+      mine = recent && (t < 0 || nearTarget || nearBase);
+      if (mine) {
+        seekRecovery.nudgePending = false;
+        seekRecovery.nudgeTarget = -1;
+      }
+    }
+
+    // Setiap event seeking yang bukan berasal dari nudge adalah seek baru
+    // dari pengguna: buka jendela pemulihan baru dan reset jatah percobaan.
+    if (ev && ev.type === 'seeking' && !mine) {
+      seekRecovery.at = now;
+      seekRecovery.tries = 0;
+      seekRecovery.base = -1;
+      seekRecovery.nudgeTarget = -1;
+      seekRecovery.nudgePending = false;
+      // Hitung mundur 4 detik dari seek ini, bukan dari kemajuan terakhir
+      // sebelum pengguna mengetuk baris.
+      if (t >= 0) {
+        seekRecovery.lastTime = t;
+        seekRecovery.lastProgress = now;
+      }
+    }
+
+    // Jangan menyegarkan timer hanya karena event seeked berulang: kalau
+    // posisi tidak berubah, itu tetap macet dan harus terdeteksi. Timer
+    // hanya disegarkan saat currentTime benar-benar bergerak.
+    if (t >= 0 && (seekRecovery.lastTime < 0 ||
+        Math.abs(t - seekRecovery.lastTime) > 0.05)) {
+      seekRecovery.lastTime = t;
+      seekRecovery.lastProgress = now;
+    }
+  }
+
+  function watchSeekRecovery() {
+    var v = getVideo();
+    if (!v) return;
+    var now = Date.now();
+    if (!isFinite(v.currentTime)) return;
+
+    if (v.paused || v.ended || !seekRecovery.at) {
+      // Saat di-pause, jendela pemulihan tetap dijaga: bisa saja pengguna
+      // menghentikan video dulu untuk membaca subtitle, lalu menekan play
+      // dan pemutar tetap macet di posisi hasil rewind.
+      if (seekRecovery.at && now - seekRecovery.at > 15000) {
+        seekRecovery.at = now;
+        seekRecovery.tries = 0;
+        seekRecovery.base = -1;
+        seekRecovery.nudgeTarget = -1;
+        seekRecovery.nudgePending = false;
+      }
+      seekRecovery.lastTime = v.currentTime;
+      seekRecovery.lastProgress = now;
+      return;
+    }
+
+    // Posisi maju: pemutar hidup, bukan macet.
+    if (Math.abs(v.currentTime - seekRecovery.lastTime) > 0.05) {
+      seekRecovery.lastTime = v.currentTime;
+      seekRecovery.lastProgress = now;
+      seekRecovery.tries = 0;
+      seekRecovery.base = -1;
+      seekRecovery.nudgeTarget = -1;
+      seekRecovery.nudgePending = false;
+      return;
+    }
+
+    if (now - seekRecovery.at > 15000) return;
+    if (now - seekRecovery.lastProgress < 4000) return;
+    if (seekRecovery.tries >= 2) return;
+    if (now - seekRecovery.lastNudge < 4000) return;
+
+    // Basis tetap dari posisi macet pertama. Percobaan kedua harus memakai
+    // target yang berbeda; kalau nudge pertama diabaikan pemutar, memakai
+    // currentTime + 0.5 lagi akan mengirim posisi yang sama persis.
+    if (seekRecovery.base < 0) seekRecovery.base = v.currentTime;
+
+    seekRecovery.tries++;
+    var offset = 0.5 * seekRecovery.tries;
+    var step = seekRecovery.base + offset;
+    if (isFinite(v.duration) && v.duration > 0 && step > v.duration - 0.2) {
+      step = Math.max(0.1, seekRecovery.base - offset);
+    }
+
+    seekRecovery.nudgeTarget = step;
+    seekRecovery.nudgePending = true;
+    seekRecovery.lastNudge = now;
+    seekRecovery.lastProgress = now;
+    try { v.currentTime = step; } catch (e) {}
   }
 
   function push(start, end, text, top) {
     if (end - start < 0.15) return;
     var last = cues[cues.length - 1];
 
-    if (isDuplicate(text, start)) return;
+    if (isDuplicate(text, start, end)) return;
 
     if (last) {
       var gap = start - last.end;
@@ -199,6 +494,7 @@ object RecorderScript {
       if (last.text === text && gap < 0.15 && gap > -0.2) {
         last.end = Math.max(last.end, end);
         statCache.at = 0;
+        replayCache = {};
         return;
       }
 
@@ -209,20 +505,37 @@ object RecorderScript {
         last._parts.push({ t: text, y: (top || 0) });
         last._parts.sort(function (a, b) { return a.y - b.y; });
         last.text = last._parts.map(function (p) { return p.t; }).join(' ');
+        last._norm = normText(last.text);
         last.end = Math.max(last.end, end);
         statCache.at = 0;
+        replayCache = {};
         return;
       }
     }
 
-    cues.push({ start: +start.toFixed(3), end: +end.toFixed(3), text: text, _top: top || 0 });
+    cues.push({
+      start: +start.toFixed(3),
+      end: +end.toFixed(3),
+      text: text,
+      _top: top || 0,
+      _norm: normText(text)
+    });
     statCache.at = 0;
+    replayCache = {};
   }
 
-  function isDuplicate(text, start) {
-    var from = Math.max(0, cues.length - 40);
-    for (var i = cues.length - 1; i >= from; i--) {
-      if (cues[i].text === text && Math.abs(cues[i].start - start) < 0.8) return true;
+  function isDuplicate(text, start, end) {
+    var norm = normText(text);
+    // Periksa seluruh rekaman, bukan hanya 40 cue terakhir: saat pengguna
+    // memundurkan video jauh ke belakang, cue pembanding bisa jauh di atas.
+    for (var i = cues.length - 1; i >= 0; i--) {
+      var c = cues[i];
+      if (!sameSubtitle(c._norm || normText(c.text), norm)) continue;
+      // Rentang waktu beririsan berarti ini cue yang sama yang diputar
+      // ulang, bukan dialog baru di waktu lain.
+      if (start < c.end + 0.35 && end > c.start - 0.35) return true;
+      // Toleransi lama untuk cue pendek yang start-nya hampir sama.
+      if (Math.abs(c.start - start) < 0.8) return true;
     }
     return false;
   }
@@ -241,7 +554,42 @@ object RecorderScript {
     return last ? last.end : 0;
   }
 
-  function pendingCount() { return live.size; }
+  function pendingPayload(list) {
+    var items = [];
+    live.forEach(function (r) { items.push(r); });
+    items.sort(function (a, b) { return a.start - b.start; });
+
+    var lastCue = list[list.length - 1];
+    var out = [];
+    var seenReplay = {};
+    var nextIndex = list.length + 1;
+
+    for (var i = 0; i < items.length; i++) {
+      var p = items[i];
+      if (p.replayCue) {
+        // Satu cue lama bisa terdiri dari beberapa elemen subtitle.
+        // Tampilkan sekali saja, memakai teks lengkap dan end cue lama.
+        var idx = list.indexOf(p.replayCue) + 1;
+        if (idx < 1 || seenReplay[idx]) continue;
+        seenReplay[idx] = true;
+        out.push({
+          i: idx,
+          start: ts(p.replayCue.start, '.'),
+          end: ts(p.replayCue.end, '.'),
+          duration: (Math.round((p.replayCue.end - p.replayCue.start) * 100) / 100).toFixed(2),
+          replay: true,
+          text: p.replayCue.text
+        });
+      } else {
+        // Buang live yang sebenarnya hanya sisa cue terakhir yang baru
+        // selesai (overlay masih tampil sesaat).
+        if (lastCue && p.text === lastCue.text &&
+            Math.abs(p.start - lastCue.start) < 0.4) continue;
+        out.push({ i: nextIndex++, start: ts(p.start, '.'), text: p.text });
+      }
+    }
+    return out;
+  }
 
   function stats() {
     var now = Date.now();
@@ -269,6 +617,7 @@ object RecorderScript {
 
   function payload() {
     var list = cues.slice().sort(function (a, b) { return a.start - b.start; });
+    var pending = pendingPayload(list);
     var total = totalOf();
     var g = getVideo();
     var pos = g ? g.currentTime : (list.length ? list[list.length - 1].end : 0);
@@ -296,7 +645,7 @@ object RecorderScript {
         })
       },
       cueCount: list.length,
-      pending: pendingCount(),
+      pending: pending.length,
       // Selalu nol: perekam tidak lagi memulihkan simpanan lama, jadi
       // tidak ada sesi sebelumnya yang bisa dilanjutkan.
       resumedFrom: 0,
@@ -306,20 +655,7 @@ object RecorderScript {
         long: rejects.long, symbol: rejects.symbol, timecode: rejects.timecode,
         closest: rejects.closest, geometry: rejects.geometry
       },
-      pendingCues: (function () {
-        var list2 = [];
-        live.forEach(function (r) { list2.push(r); });
-        list2.sort(function (a, b) { return a.start - b.start; });
-        var lastCue = cues[cues.length - 1];
-        if (lastCue) {
-          list2 = list2.filter(function (p) {
-            return !(p.text === lastCue.text && Math.abs(p.start - lastCue.start) < 0.4);
-          });
-        }
-        return list2.map(function (p, n) {
-          return { i: list.length + n + 1, start: ts(p.start, '.'), text: p.text };
-        });
-      })(),
+      pendingCues: pending,
       cues: list.map(function (c, i) {
         return {
           i: i + 1,
@@ -340,12 +676,24 @@ object RecorderScript {
     statCache.at = 0;
     statCache.gaps = [];
     statCache.covered = 0;
+    seekRecovery.at = 0;
+    seekRecovery.tries = 0;
+    seekRecovery.base = -1;
+    seekRecovery.nudgeTarget = -1;
+    seekRecovery.nudgePending = false;
+    seekRecovery.seekingSince = 0;
+    seekRecovery.uiPendingUntil = 0;
+    seekRecovery.lastTime = -1;
+    seekRecovery.lastProgress = 0;
+    seekRecovery.lastNudge = 0;
+    replayCache = {};
     return true;
   }
 
   function tick() {
     checkRoute();
     scan();
+    watchSeekRecovery();
   }
 
   function loop(now) {
@@ -355,19 +703,197 @@ object RecorderScript {
 
   document.addEventListener('seeking', flushLive, true);
   document.addEventListener('seeked', flushLive, true);
+  document.addEventListener('seeking', armSeekRecovery, true);
+  document.addEventListener('seeked', armSeekRecovery, true);
+
+  // Kontrol Home pada seek bar Bitmovin memanggil player.seek(0), jalur yang
+  // sama dengan tombol replay. Ini jauh lebih aman daripada menulis
+  // currentTime langsung di detik-detik awal, yang membuat Bitmovin memuat
+  // ulang stream lalu berhenti di frame pertama.
+  function seekToStartViaUi(v) {
+    var roots = [];
+    try {
+      var box = v && v.closest ? v.closest('.bmpui-ui-player') : null;
+      if (box) roots.push(box);
+    } catch (e) {}
+    try {
+      var r = v && v.getRootNode ? v.getRootNode() : null;
+      if (r && roots.indexOf(r) === -1) roots.push(r);
+    } catch (e) {}
+    if (roots.indexOf(document) === -1) roots.push(document);
+
+    var selectors = [
+      '.bmpui-ui-seekbar',
+      '[class*="bmpui"][class*="seekbar"]',
+      '[class*="seek"][role="slider"]',
+      '[aria-label*="seek" i][role="slider"]',
+      '[aria-label*="posisi" i][role="slider"]'
+    ];
+    for (var s = 0; s < selectors.length; s++) {
+      for (var q = 0; q < roots.length; q++) {
+        var list = [];
+        try { list = roots[q].querySelectorAll(selectors[s]); } catch (e) { list = []; }
+        for (var i = 0; i < list.length; i++) {
+          var el = list[i];
+          try { el.focus(); } catch (e) {}
+          try {
+            var ev = new KeyboardEvent('keydown', {
+              key: 'Home',
+              code: 'Home',
+              keyCode: 36,
+              which: 36,
+              bubbles: true,
+              cancelable: true
+            });
+            try {
+              if (ev.keyCode !== 36) {
+                Object.defineProperty(ev, 'keyCode', { get: function () { return 36; } });
+                Object.defineProperty(ev, 'which', { get: function () { return 36; } });
+              }
+            } catch (e) {}
+            el.dispatchEvent(ev);
+            return true;
+          } catch (e) {}
+        }
+      }
+    }
+    return false;
+  }
+
+  // Jalan darurat kalau kontrol Home tidak tersedia atau tidak bereaksi.
+  // Video dijeda dulu supaya Bitmovin tidak menahan frame sambil menunggu
+  // buffer, lalu play lagi setelah seeked (dengan batas waktu).
+  function directSeek(v, target, guard) {
+    if (!guard) {
+      v.currentTime = target;
+      return;
+    }
+    var wasPlaying = !v.paused && !v.ended;
+    if (wasPlaying) {
+      try { v.pause(); } catch (e) {}
+      var resumed = false;
+      var resume = function () {
+        if (resumed) return;
+        resumed = true;
+        try { v.removeEventListener('seeked', resume); } catch (e) {}
+        if (!v.paused) return;
+        try {
+          var p = v.play();
+          if (p && p.catch) p.catch(function () {});
+        } catch (e) {}
+      };
+      try { v.addEventListener('seeked', resume, { once: true }); } catch (e) {}
+      setTimeout(resume, 1500);
+    }
+    v.currentTime = target;
+  }
+
+  function armUserSeek(at) {
+    seekRecovery.seekingSince = at;
+    seekRecovery.at = at;
+    seekRecovery.tries = 0;
+    seekRecovery.base = -1;
+    seekRecovery.nudgeTarget = -1;
+    seekRecovery.nudgePending = false;
+    seekRecovery.uiPendingUntil = 0;
+    seekRecovery.lastProgress = at;
+  }
 
   window.ViuSubRecorder = {
-    version: '5.1',
+    version: '5.6',
     payload: payload,
     // Memakai getVideo() yang sama dengan perekam, bukan video pertama di
     // DOM: halaman Viu bisa punya lebih dari satu <video> (iklan/pratinjau),
     // dan yang pertama belum tentu yang sedang tampil.
     seek: function (seconds) {
-      var v = getVideo();
-      if (!v) return false;
+      var v = seekVideo(seconds);
+      if (!v) return JSON.stringify({ ok: false, reason: 'no-video' });
       var d = (isFinite(v.duration) && v.duration > 0) ? v.duration : seconds;
-      v.currentTime = Math.max(0, Math.min(seconds, d));
-      return true;
+      var target = Math.max(0, Math.min(seconds, d));
+      // Cue pertama biasanya ada di detik 0,1–0,5. Menulis currentTime di
+      // rentang itu membuat Bitmovin memuat ulang awal stream dan berhenti.
+      var early = target < 1.0;
+      // Cue yang masih live akan ditutup oleh event seeking. Mereka sudah
+      // ada sebelum lompatan, jadi ikut dihitung sebagai cue lama.
+      var boundary = cues.length + live.size;
+      // Klik berulang pada baris yang sama tidak perlu menyentuh pemutar
+      // lagi. Toleransi cue awal lebih lebar karena jalur Home/fallback
+      // bisa mendarat di 0 atau 0,5 detik.
+      var near = early ? 0.5 : 0.3;
+      if (Math.abs(v.currentTime - target) < near) {
+        return JSON.stringify({
+          ok: true,
+          target: target,
+          cueCount: boundary
+        });
+      }
+      var now = Date.now();
+      // Dua seek yang dikirim beruntun saat Bitmovin masih memproses seek
+      // pertama bisa membuat pemutar diam di frame pertama. Tolak seek baru
+      // selama seek masih segar; kalau seek sudah macet lebih dari 2,5 detik,
+      // izinkan tap baru sebagai upaya pemulihan. uiPendingUntil menahan tap
+      // kedua saat seek awal dikirim lewat kontrol Home (v.seeking belum
+      // tentu langsung true).
+      if (v.seeking || now < seekRecovery.uiPendingUntil) {
+        var since = seekRecovery.seekingSince || (now - 2500);
+        if (now - since < 2500) {
+          return JSON.stringify({
+            ok: false,
+            reason: 'busy',
+            target: target
+          });
+        }
+      }
+      if (early) {
+        var before = v.currentTime;
+        if (seekToStartViaUi(v)) {
+          var homeAt = Date.now();
+          armUserSeek(homeAt);
+          seekRecovery.uiPendingUntil = homeAt + 1500;
+          // Kalau kontrol Home tidak tersedia/bereaksi, pakai currentTime
+          // dengan jeda aman setelah 0,9 detik. Posisi yang sudah bergerak
+          // mendekati awal tidak boleh ditimpa.
+          setTimeout(function () {
+            try {
+              if (!v.seeking && v.currentTime > 3.0 &&
+                  v.currentTime >= before - 0.5) {
+                var safe = Math.max(target, Math.min(0.5, d));
+                directSeek(v, safe, true);
+                armUserSeek(Date.now());
+                seekRecovery.uiPendingUntil = Date.now() + 1200;
+              }
+            } catch (e) {}
+          }, 900);
+          return JSON.stringify({
+            ok: true,
+            target: target,
+            cueCount: boundary
+          });
+        }
+        var safeTarget = Math.max(target, Math.min(0.5, d));
+        try {
+          directSeek(v, safeTarget, true);
+          armUserSeek(Date.now());
+        } catch (e) {
+          return JSON.stringify({ ok: false, reason: 'seek-error' });
+        }
+        return JSON.stringify({
+          ok: true,
+          target: safeTarget,
+          cueCount: boundary
+        });
+      }
+      try {
+        directSeek(v, target, false);
+        armUserSeek(Date.now());
+      } catch (e) {
+        return JSON.stringify({ ok: false, reason: 'seek-error' });
+      }
+      return JSON.stringify({
+        ok: true,
+        target: target,
+        cueCount: boundary
+      });
     },
     reset: function () {
       cues.length = 0;
@@ -375,6 +901,17 @@ object RecorderScript {
       statCache.at = 0;
       statCache.gaps = [];
       statCache.covered = 0;
+      seekRecovery.at = 0;
+      seekRecovery.tries = 0;
+      seekRecovery.base = -1;
+      seekRecovery.nudgeTarget = -1;
+      seekRecovery.nudgePending = false;
+      seekRecovery.seekingSince = 0;
+      seekRecovery.uiPendingUntil = 0;
+      seekRecovery.lastTime = -1;
+      seekRecovery.lastProgress = 0;
+      seekRecovery.lastNudge = 0;
+      replayCache = {};
       return true;
     }
   };
@@ -432,15 +969,25 @@ object RecorderScript {
      * Melompat ke detik tertentu di video yang sedang diputar.
      *
      * Memakai window.ViuSubRecorder.seek() supaya elemen <video> yang
-     * dipilih sama dengan yang dipakai perekam — bukan video pertama di
-     * DOM yang bisa saja iklan atau pratinjau.
+     * dipilih memakai heuristik yang sama dengan perekam — bukan video
+     * pertama di DOM yang bisa saja iklan atau pratinjau. Hasilnya JSON:
+     * {"ok":true,...} kalau posisi diterapkan, atau
+     * {"ok":false,"reason":"no-script"|"no-video"|"seek-error"|"busy"}
+     * kalau tidak. Pemanggil memakai reason untuk memutuskan perlu mencoba
+     * lagi; "busy" berarti seek pertama belum selesai dan tidak boleh
+     * ditumpuk.
+     *
+     * Cue pertama (target di bawah 1 detik) memakai kontrol Home pada seek
+     * bar Bitmovin supaya pemutar sendiri yang melakukan seek ke awal;
+     * menulis currentTime langsung di rentang itu membuat Bitmovin memuat
+     * ulang stream lalu berhenti di frame pertama.
      */
     fun seek(seconds: Double): String {
         val t = String.format(Locale.US, "%.3f", seconds)
         return "(function(){" +
             "var r=window.ViuSubRecorder;" +
             "if(r&&typeof r.seek==='function')return r.seek($t);" +
-            "return false})()"
+            "return JSON.stringify({ok:false,reason:'no-script'})})()"
     }
 
     /** Menghapus rekaman di halaman yang sedang terbuka. */

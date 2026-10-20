@@ -54,6 +54,13 @@ data class VtrPayload(
         val end: String,
         val duration: String,
         val text: String,
+        /**
+         * Cue di pendingCues yang berasal dari rekaman lama: pengguna
+         * memundurkan video ke bagian yang sudah pernah terekam. Baris ini
+         * memakai nomor, waktu mulai, dan waktu selesai cue lama, jadi
+         * tidak muncul sebagai cue baru tanpa end.
+         */
+        val replay: Boolean = false,
     )
 
     companion object {
@@ -118,6 +125,7 @@ data class VtrPayload(
                             end = c.optString("end", ""),
                             duration = c.optString("duration", ""),
                             text = c.optString("text", ""),
+                            replay = c.optBoolean("replay", false),
                         ),
                     )
                 }
