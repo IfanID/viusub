@@ -54,6 +54,10 @@ class MainActivity : AppCompatActivity() {
     private var lastPayload: VtrPayload? = null
     private var folderUri: Uri? = null
 
+    /** Ekspor yang menunggu folder dipilih; dilanjutkan otomatis setelahnya. */
+    private enum class ExportKind { JSON, SRT }
+    private var pendingExport: ExportKind? = null
+
     /**
      * Tampilan fullscreen native yang sedang aktif.
      *
@@ -116,13 +120,27 @@ class MainActivity : AppCompatActivity() {
     private val pickFolder = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        if (uri == null) return@registerForActivityResult
+        val next = pendingExport
+        pendingExport = null
+        if (uri == null) {
+            if (next != null) announce(getString(R.string.msg_save_cancelled), error = true)
+            return@registerForActivityResult
+        }
         if (!ExportStore.rememberTree(this, uri)) {
             say(getString(R.string.msg_folder_denied))
+            announce(getString(R.string.msg_folder_denied), error = true)
             return@registerForActivityResult
         }
         folderUri = uri
         say(getString(R.string.msg_folder_ok, uri.lastPathSegment ?: "?"))
+        // Ekspor yang tadi terhenti karena folder belum dipilih langsung
+        // dilanjutkan, supaya pengguna tidak perlu menekan tombol simpan
+        // sekali lagi.
+        when (next) {
+            ExportKind.JSON -> exportJson()
+            ExportKind.SRT -> exportSrt()
+            null -> {}
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -484,36 +502,58 @@ class MainActivity : AppCompatActivity() {
     private fun exportJson() {
         val tree = folderUri
         if (tree == null) {
+            pendingExport = ExportKind.JSON
             say(getString(R.string.msg_no_folder))
+            announce(getString(R.string.msg_pick_folder_first), error = true)
+            runCatching { pickFolder.launch(null) }
             return
         }
+        announce(getString(R.string.msg_saving_json))
         withFullPayload { json, payload ->
             if (json == null || payload == null || payload.cueCount == 0) {
                 say(getString(R.string.msg_nothing))
+                announce(getString(R.string.msg_nothing), error = true)
                 return@withFullPayload
             }
             val name = SrtWriter.jsonFileName(payload, episodeTitle)
             val error = ExportStore.writeJson(this, tree, name, prettyPrint(json))
-            say(error ?: getString(R.string.msg_saved, name))
+            if (error == null) {
+                say(getString(R.string.msg_saved, name))
+                announce(getString(R.string.msg_saved, name))
+            } else {
+                say(error)
+                announce(error, error = true)
+            }
         }
     }
 
     private fun exportSrt() {
         val tree = folderUri
         if (tree == null) {
+            pendingExport = ExportKind.SRT
             say(getString(R.string.msg_no_folder))
+            announce(getString(R.string.msg_pick_folder_first), error = true)
+            runCatching { pickFolder.launch(null) }
             return
         }
+        announce(getString(R.string.msg_saving_srt))
         withFullPayload { _, payload ->
             if (payload == null ||
                 (payload.cues.isEmpty() && payload.pendingCues.isEmpty())
             ) {
                 say(getString(R.string.msg_nothing))
+                announce(getString(R.string.msg_nothing), error = true)
                 return@withFullPayload
             }
             val name = SrtWriter.fileName(payload, episodeTitle)
             val error = ExportStore.writeSrt(this, tree, name, SrtWriter.build(payload))
-            say(error ?: getString(R.string.msg_saved, name))
+            if (error == null) {
+                say(getString(R.string.msg_saved, name))
+                announce(getString(R.string.msg_saved, name))
+            } else {
+                say(error)
+                announce(error, error = true)
+            }
         }
     }
 
@@ -687,6 +727,44 @@ class MainActivity : AppCompatActivity() {
         binding.liveText.text = message
         binding.liveText.setTextColor(ContextCompat.getColor(this, R.color.panel_accent))
         lastRenderedLine = message
+    }
+
+    /**
+     * Notifikasi ekspor dengan animasi kecil: memudar masuk, ditahan
+     * sebentar, lalu memudar keluar. Tanpa ini pengguna tidak tahu apakah
+     * berkas benar-benar tersimpan — teks di bar terlalu jauh dari mata
+     * yang sedang menatap pemain.
+     */
+    private fun announce(message: String, error: Boolean = false) {
+        val toast = binding.saveToast
+        toast.animate().cancel()
+        mainHandler.removeCallbacks(hideToastTask)
+        toast.text = message
+        toast.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (error) R.color.error_text else R.color.panel_accent,
+            ),
+        )
+        toast.alpha = 0f
+        toast.scaleX = 0.94f
+        toast.scaleY = 0.94f
+        toast.visibility = View.VISIBLE
+        toast.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(160)
+            .start()
+        mainHandler.postDelayed(hideToastTask, 2800)
+    }
+
+    private val hideToastTask = Runnable {
+        binding.saveToast.animate()
+            .alpha(0f)
+            .setDuration(240)
+            .withEndAction { binding.saveToast.visibility = View.GONE }
+            .start()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

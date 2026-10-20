@@ -9,4 +9,5 @@
     <color name="divider">#1F1F1F</color>
     <color name="surface">#0B0B0B</color>
     <color name="ic_launcher_background">#000000</color>
+    <color name="error_text">#FF6B6B</color>
 </resources>

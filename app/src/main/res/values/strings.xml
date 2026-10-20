@@ -29,6 +29,10 @@
     <string name="splash_waiting">Menyiapkan pemain…</string>
 
     <string name="msg_no_folder">Pilih folder tujuan dulu (tombol Pilih Folder).</string>
+    <string name="msg_pick_folder_first">Folder tujuan belum dipilih — pilih foldernya dulu.</string>
+    <string name="msg_saving_json">Menyimpan JSON…</string>
+    <string name="msg_saving_srt">Menyimpan SRT…</string>
+    <string name="msg_save_cancelled">Folder tidak dipilih — penyimpanan dibatalkan.</string>
     <string name="msg_nothing">Belum ada cue yang terekam.</string>
     <string name="msg_folder_ok">Tersimpan ke folder: %1$s</string>
     <string name="msg_folder_denied">Folder itu tidak bisa ditulis. Coba folder lain.</string>

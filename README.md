@@ -191,6 +191,12 @@ ikut ditulis, asal posisinya memang setelah cue sebelumnya.
 JSON disimpan apa adanya, bukan dimodelkan ulang di Kotlin, supaya tidak ada
 field yang hilang.
 
+Folder dicek lebih dulu saat menyimpan: kalau belum pernah dipilih, pemilih
+folder langsung terbuka dan ekspor dilanjutkan otomatis setelah folder
+ditentukan (tidak perlu menekan Simpan dua kali). Setiap ekspor memunculkan
+notifikasi kecil beranimasi di atas bar — "Menyimpan JSON…" saat mulai, lalu
+"Tersimpan: nama berkas" atau pesan galat berwarna merah saat selesai.
+
 Penggunaan: sekali tekan **Pilih Folder**, arahkan ke `Documents`, izin
 baca+tulis disimpan permanen. Setelah itu tombol ekspor langsung menulis ke
 folder itu tanpa meminta lagi. Ini Storage Access Framework, bukan permission
