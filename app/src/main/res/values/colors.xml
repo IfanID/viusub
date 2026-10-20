@@ -5,9 +5,14 @@
     <color name="panel_accent">#00E5FF</color>
     <color name="panel_text">#F2F2F2</color>
     <color name="meta_text">#9E9E9E</color>
+    <!-- Nomor cue yang sudah selesai: cyan lembut, senada dengan aksen
+         live tetapi tidak sekeras status live. -->
+    <color name="cue_number">#4DD0E1</color>
     <color name="thumb_placeholder">#1E1E1E</color>
     <color name="divider">#1F1F1F</color>
     <color name="surface">#0B0B0B</color>
     <color name="ic_launcher_background">#000000</color>
     <color name="error_text">#FF6B6B</color>
+    <!-- Latar baris cue yang masih live di transkrip. -->
+    <color name="live_row">#1A00E5FF</color>
 </resources>

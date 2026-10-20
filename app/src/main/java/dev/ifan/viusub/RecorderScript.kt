@@ -1,5 +1,7 @@
 package dev.ifan.viusub
 
+import java.util.Locale
+
 /**
  * Kode perekam subtitle, ditulis langsung di sourcecode app.
  *
@@ -357,6 +359,16 @@ object RecorderScript {
   window.ViuSubRecorder = {
     version: '5.1',
     payload: payload,
+    // Memakai getVideo() yang sama dengan perekam, bukan video pertama di
+    // DOM: halaman Viu bisa punya lebih dari satu <video> (iklan/pratinjau),
+    // dan yang pertama belum tentu yang sedang tampil.
+    seek: function (seconds) {
+      var v = getVideo();
+      if (!v) return false;
+      var d = (isFinite(v.duration) && v.duration > 0) ? v.duration : seconds;
+      v.currentTime = Math.max(0, Math.min(seconds, d));
+      return true;
+    },
     reset: function () {
       cues.length = 0;
       live.clear();
@@ -381,7 +393,9 @@ object RecorderScript {
      * Cue dipangkas ke PREVIEW_MAX terakhir di sini, di sisi JS, SEBELUM
      * di-stringify. Kalau tidak, tiap polling ikut membawa seluruh rekaman:
      * pada menit ke-90 itu sekitar 1500 cue / 200 KB, di-stringify beberapa
-     * kali per detik, sia-sia karena panel hanya menampilkan 30 baris.
+     * kali per detik. Panel tetap menampilkan seluruh rekaman; snapshot
+     * penuh diambil terpisah lewat READ_FULL saat pertama kali atau saat
+     * terdeteksi ada celah.
      *
      * Mengembalikan null kalau skrip belum terpasang di halaman ini.
      */
@@ -401,11 +415,11 @@ object RecorderScript {
     /**
      * Membaca seluruh rekaman tanpa pemangkasan.
      *
-     * Dipakai hanya saat tombol ekspor ditekan, bukan saat polling. Polling
-     * memakai READ_PAYLOAD yang dipangkas ke PREVIEW_MAX, karena panel hanya
-     * menampilkan segelintir baris terakhir. Kalau ekspor ikut memakai yang
-     * dipangkas, file SRT untuk episode panjang akan berisi 30 cue terakhir
-     * saja, tanpa peringatan sama sekali.
+     * Dipakai untuk ekspor dan untuk melengkapi daftar transkrip secara
+     * otomatis, bukan saat polling. Polling memakai READ_PAYLOAD yang
+     * dipangkas ke PREVIEW_MAX supaya tetap ringan. Kalau ekspor ikut
+     * memakai yang dipangkas, file SRT untuk episode panjang akan berisi
+     * 30 cue terakhir saja, tanpa peringatan sama sekali.
      */
     const val READ_FULL = """
 (function () {
@@ -413,6 +427,21 @@ object RecorderScript {
   return JSON.stringify(window.ViuSubRecorder.payload());
 })()
 """
+
+    /**
+     * Melompat ke detik tertentu di video yang sedang diputar.
+     *
+     * Memakai window.ViuSubRecorder.seek() supaya elemen <video> yang
+     * dipilih sama dengan yang dipakai perekam — bukan video pertama di
+     * DOM yang bisa saja iklan atau pratinjau.
+     */
+    fun seek(seconds: Double): String {
+        val t = String.format(Locale.US, "%.3f", seconds)
+        return "(function(){" +
+            "var r=window.ViuSubRecorder;" +
+            "if(r&&typeof r.seek==='function')return r.seek($t);" +
+            "return false})()"
+    }
 
     /** Menghapus rekaman di halaman yang sedang terbuka. */
     const val RESET = "window.ViuSubRecorder && window.ViuSubRecorder.reset()"

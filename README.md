@@ -50,22 +50,65 @@ diurutkan dari episode terbaru ke yang terlama.
 
 ```
 ┌─────────────────────────────────┐
-│ (12)                            │ ← indikator nomor cue, pojok kiri atas
+│ (12)                            │ ← indikator nomor cue, hanya fullscreen
 │                                 │
 │            video                │
 │                                 │
-│ ┌─────────────────────────────┐ │
-│ │ ▸ Running Man - Ep 823      │ │ ← bar live, bisa dibuka-tutup
-│ └─────────────────────────────┘ │
+├─────────────────────────────────┤ ← bar menempel di bawah video
+│ ▸ Cuacanya sangat cerah.        │ ← hingga dua baris, tanpa tombol
+├─────────────────────────────────┤
+│ cue 12 · ▸ 1 live · cakupan 98% │ ← strip statistik
+│ 1:05:33 / 1:32:33 · sisa 27:00  │
+│ ▸11 1:05:30 → …  Luar biasa.    │ ← transkrip, terbaru di atas
+│ 10  1:05:20 → 1:05:23  Cerah.   │
+│  9  1:05:12 → 1:05:15  Benar.   │
+│                          (↑)    │ ← tombol live melayang saat digulir
+├─────────────────────────────────┤
+│ [ Simpan SRT ] [ Simpan JSON ]  │ ← panel kontrol terpisah
+│ [ Folder ] [ Reset ] [ Status ] │
+│ ☑ Layar tetap nyala             │
 └─────────────────────────────────┘
 ```
 
-- Bar melayang di bawah menampilkan **satu baris subtitle**. Statusnya jujur
-  lewat awalan dan warna: `▸ teks` cyan saat cue benar-benar sedang tampil;
-  `✓ teks` redup saat cue itu sudah lewat (bar tidak dikosongkan supaya tidak
-  berkedip di setiap jeda); dan "Menunggu subtitle…" redup saat belum ada
-  cue sama sekali. Diketuk, panel tombol muncul (Pilih Folder, Reset,
-  Simpan JSON, Simpan SRT).
+- **Bar live menempel tepat di bawah video**, bukan di dasar layar. Posisinya
+  diukur dari kotak `<video>` lewat JS (rasio terhadap tinggi viewport,
+  jadi aman terhadap density dan zoom) dan diperbarui tiap detik. Dengan
+  begitu teks subtitle selalu dekat dengan gambar yang sedang ditonton.
+- Bar menampilkan **hingga dua baris subtitle** dengan teks 15sp dan diberi
+  jarak sebelum strip statistik, jadi preview live lebih lega dibaca; bar
+  tidak lagi memuat tombol.
+  Statusnya jujur lewat awalan dan warna: `▸ teks` cyan saat cue benar-benar
+  sedang tampil; `✓ teks` redup saat cue itu sudah lewat (bar tidak
+  dikosongkan supaya tidak berkedip di setiap jeda); dan "Menunggu
+  subtitle…" redup saat belum ada cue sama sekali.
+- **Panel kontrol terpisah di dasar layar**: Simpan SRT, Simpan JSON,
+  Pilih Folder, Reset, Status, dan centang "Layar tetap nyala". Tombol
+  Status membuka dialog berisi diagnostik lengkap (posisi, cakupan,
+  lubang, dan ringkasan filter) — tidak lagi memenuhi layar utama.
+- **Panel transkrip** di bawah bar mengisi sisa area hitam: strip statistik
+  (jumlah cue, cue live, cakupan, lubang, posisi/durasi) dan **semua cue yang
+  sudah terekam** dengan **urutan terbalik** — cue terbaru (dan cue live) di
+  puncak, cue lama di bawah. Cue live diberi latar cyan tipis dan awalan `▸`.
+  Tiap baris menampilkan nomor, waktu **mulai → selesai**, dan teksnya; cue
+  yang masih live memakai `…` sebagai akhir karena waktunya belum diketahui.
+  Nomor cue yang sudah selesai diberi cyan lembut, sedangkan nomor cue live
+  tetap cyan terang.
+  Daftar menggulir sendiri hanya kalau pengguna sedang berada di puncak;
+  kalau sedang membaca cue lama, posisinya tidak direbut. Saat tergulir
+  menjauh, tombol lingkaran **`↑`** melayang di kanan bawah daftar untuk
+  kembali ke cue terbaru; padding bawah daftar hanya aktif selama tombol
+  terlihat supaya baris terakhir tidak tertutup dan tidak ada ruang kosong
+  permanen. Polling tetap ringan karena hanya membawa 30 cue terakhir;
+  snapshot penuh lewat `READ_FULL` diambil otomatis saat pertama kali atau
+  saat terdeteksi ada celah, jadi seluruh rekaman tampil tanpa tombol
+  "Muat semua".
+  Mengetuk satu baris **melompat ke detik itu** — perekam sudah punya dedupe
+  teks + waktu, jadi memutar ulang tidak menggandakan cue. Lompatan memakai
+  elemen `<video>` yang sama dengan perekam, bukan video pertama di DOM; kalau
+  tidak ada video yang bisa dipakai, muncul pesan gagal. Panel hilang saat
+  fullscreen atau saat sisa ruang di atas panel kontrol kurang dari 140dp.
+- **Notifikasi simpan** muncul tepat di atas panel kontrol, dekat dengan
+  tombol yang ditekan dan tidak menutupi video.
 - **Hanya pemain** (`PlayerFocusScript`): saat episode dibuka, seluruh chrome
   halaman Viu — header, info episode, rekomendasi, footer — disembunyikan,
   dan zona pemain diangkat memenuhi layar. Kotak video dibikin 16:9 melebar
@@ -156,9 +199,11 @@ if (Array.isArray(p.cues) && p.cues.length > 30) {
 ```
 
 Kalau tidak dipangkas, polling akan ikut membawa seluruh rekaman. Pada menit
-ke-90 itu sekitar 1500 cue / 200 KB per polling, sia-sia karena panel hanya
-menampilkan 30 baris. Jumlah yang dipangkas dikembalikan lewat
-`truncatedFrom`, dipakai panel untuk menulis "… N cue sebelumnya".
+ke-90 itu sekitar 1500 cue / 200 KB per polling. Panel tetap menampilkan
+seluruh rekaman: snapshot penuh diambil otomatis lewat `READ_FULL` saat
+pertama kali atau saat jumlah cue bertambah melewati jendela 30, lalu
+digabung dengan cue terbaru dari polling. `truncatedFrom` masih dipakai
+dialog Status untuk menandai preview yang dipangkas.
 
 Ekspor **tidak** memakai payload yang dipangkas: tombol ekspor membaca
 `READ_FULL`. Kalau ekspor ikut memakai yang dipangkas, file SRT untuk episode
@@ -194,7 +239,7 @@ field yang hilang.
 Folder dicek lebih dulu saat menyimpan: kalau belum pernah dipilih, pemilih
 folder langsung terbuka dan ekspor dilanjutkan otomatis setelah folder
 ditentukan (tidak perlu menekan Simpan dua kali). Setiap ekspor memunculkan
-notifikasi kecil beranimasi di atas bar — "Menyimpan JSON…" saat mulai, lalu
+notifikasi kecil beranimasi di bawah bar — "Menyimpan JSON…" saat mulai, lalu
 "Tersimpan: nama berkas" atau pesan galat berwarna merah saat selesai.
 
 Penggunaan: sekali tekan **Pilih Folder**, arahkan ke `Documents`, izin

@@ -21,20 +21,26 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import dev.ifan.viusub.databinding.ActivityMainBinding
 import org.json.JSONObject
 
 /**
- * Layar home: WebView penuh, dengan bar melayang di bawah.
+ * Layar pemutar: WebView penuh, dengan bar live tepat di bawah video,
+ * panel transkrip mengisi sisa area hitam, dan panel kontrol tetap di
+ * dasar layar.
  *
- * Bar dalam keadaan ringkas hanya menampilkan satu baris teks subtitle yang
- * sedang live. Saat diketuk, panel tombol (folder, reset, simpan JSON, simpan
- * SRT) muncul; diketuk lagi untuk menutup.
+ * Bar live hanya menampilkan satu baris teks subtitle yang sedang tampil.
+ * Tombol-tombol (folder, reset, simpan JSON, simpan SRT, status) berada
+ * di panel kontrol terpisah, bukan di dalam bar.
  *
  * Tidak ada split 30% lagi. WebView memakai seluruh layar.
  */
@@ -46,7 +52,6 @@ class MainActivity : AppCompatActivity() {
 
     /** Mencegah render ulang untuk isi yang sama. */
     private var lastRenderedLine: String? = null
-    private var lastRenderedStatus: String? = null
 
     /** Angka terakhir yang ditulis ke badge, supaya tidak digambar ulang. */
     private var lastCueNumber: Int = -1
@@ -79,7 +84,38 @@ class MainActivity : AppCompatActivity() {
     private val episodeTitle: String? by lazy { intent?.getStringExtra(EXTRA_TITLE) }
     private val episodeCover: String? by lazy { intent?.getStringExtra(EXTRA_COVER) }
     private var polling = false
-    private var expanded = false
+
+    /** Posisi atas bar live (piksel). -1 selama video belum terukur. */
+    private var barTopPx = -1
+    private var layoutTick = 0
+    private var transcriptTick = 0
+
+    private val transcriptAdapter = TranscriptAdapter { seconds -> seekTo(seconds) }
+
+    /**
+     * Seluruh cue yang sudah terekam; null selama snapshot penuh belum
+     * datang dan panel masih memakai 30 cue terakhir dari polling.
+     * Snapshot ini menjadi dasar daftar panjang, lalu cue terbaru dari
+     * polling digabung ke dalamnya supaya akhir cue terakhir tetap segar.
+     */
+    private var allCues: List<VtrPayload.Cue>? = null
+    private var loadingAllCues = false
+
+    /**
+     * Apakah daftar transkrip sedang mengikuti cue live di puncak.
+     *
+     * Selama true, setiap kali ada cue baru daftar dikembalikan ke baris
+     * pertama. Begitu pengguna menggulir ke bawah untuk membaca cue lama,
+     * nilainya false supaya posisi baca tidak direbut. Menekan tombol
+     * lingkaran ↑ atau menggulir sendiri sampai puncak menyalakannya lagi.
+     */
+    private var followLive = true
+
+    /**
+     * Naik setiap kali halaman mulai dimuat. Dipakai untuk membuang hasil
+     * READ_FULL yang datang terlambat dari halaman sebelumnya.
+     */
+    private var pageGeneration = 0
 
     /**
      * Saat layar mati, video berhenti dan requestAnimationFrame berhenti,
@@ -93,6 +129,7 @@ class MainActivity : AppCompatActivity() {
         override fun run() {
             if (!polling) return
             readPayload()
+            if (layoutTick++ % 10 == 0) measureVideoBottom()
             if (!splashDismissed && readyTick++ % 3 == 0) checkPlayerReady()
             if (scriptTick++ % 20 == 0) reinstallPageScripts()
             mainHandler.postDelayed(this, POLL_MS)
@@ -161,11 +198,17 @@ class MainActivity : AppCompatActivity() {
         applyKeepScreenOn(keepScreenOn, save = false)
 
         setupLiveBar()
+        setupTranscript()
 
         if (savedInstanceState == null) {
             startSplash()
+            // Layar sapaan dilewati kalau episode tidak membawa judul/cover
+            // (mis. WebView dibuka tanpa Home). Tanpa penanda ini, bar dan
+            // transkrip tidak akan pernah dianggap siap tampil.
+            if (binding.splashOverlay.visibility != View.VISIBLE) splashDismissed = true
             binding.webView.loadUrl(startUrl)
         } else {
+            splashDismissed = true
             binding.webView.restoreState(savedInstanceState)
         }
     }
@@ -271,9 +314,9 @@ class MainActivity : AppCompatActivity() {
      * Adjusts the system chrome while in fullscreen.
      *
      * The system bar is hidden so the video really fills the screen, and the
-     * floating bar is hidden because it sits at the bottom — exactly where the
-     * player's own control bar is. The cue number badge appears only while
-     * fullscreen, so the normal view stays clean.
+     * live bar (plus the transcript panel under it) is hidden because the
+     * video now occupies the whole area. The cue number badge appears only
+     * while fullscreen, so the normal view stays clean.
      */
     private fun applyFullscreenChrome(enabled: Boolean) {
         val controller = WindowInsetsControllerCompat(window, binding.root)
@@ -292,6 +335,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.liveBar.visibility = if (enabled) View.GONE else View.VISIBLE
+        binding.controlPanel.visibility =
+            if (!enabled && splashDismissed) View.VISIBLE else View.GONE
+        updateRecorderPanel()
+        binding.controlPanel.post { updateRecorderPanel() }
 
         // Angka cue hanya tampil selama fullscreen.
         refreshCueBadge()
@@ -333,6 +380,9 @@ class MainActivity : AppCompatActivity() {
         binding.webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
+                // Rekaman halaman lama tidak boleh tercampur dengan halaman
+                // baru yang indeks cue-nya mulai dari 1 lagi.
+                invalidateFullTranscript()
                 // Skrip dipasang sedini mungkin supaya dokumen mana pun —
                 // termasuk hasil redirect di tengah-tengah muatan — langsung
                 // dipandu sejak awal; guard di kedua skrip membuat pemasangan
@@ -399,11 +449,6 @@ class MainActivity : AppCompatActivity() {
                         exitFullscreen()
                         return
                     }
-                    // Kalau panel sedang terbuka, back menutupnya dulu.
-                    if (expanded) {
-                        setExpanded(false)
-                        return
-                    }
                     if (binding.webView.canGoBack()) {
                         binding.webView.goBack()
                     } else {
@@ -416,7 +461,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupLiveBar() {
-        binding.liveRow.setOnClickListener { setExpanded(!expanded) }
+        binding.btnInfo.setOnClickListener { showStatusDialog() }
 
         binding.btnPickFolder.setOnClickListener {
             runCatching { pickFolder.launch(null) }
@@ -432,12 +477,253 @@ class MainActivity : AppCompatActivity() {
             lastRenderedLine = null
             lastPayload = null
             lastCueNumber = -1
+            invalidateFullTranscript()
+            transcriptAdapter.clear()
+            binding.transcriptEmpty.visibility = View.VISIBLE
             binding.cueBadge.visibility = View.GONE
             say(getString(R.string.panel_idle))
         }
 
         binding.btnSaveJson.setOnClickListener { exportJson() }
         binding.btnSaveSrt.setOnClickListener { exportSrt() }
+    }
+
+    /**
+     * Panel transkrip di bawah bar: statistik rekaman dan cue yang sudah
+     * lewat. Bar live sendiri menjadi kepalanya.
+     */
+    private fun setupTranscript() {
+        binding.transcriptList.layoutManager = LinearLayoutManager(this)
+        binding.transcriptList.adapter = transcriptAdapter
+
+        binding.btnJumpLive.setOnClickListener {
+            followLive = true
+            binding.transcriptList.scrollToPosition(0)
+            updateJumpLive()
+        }
+        binding.transcriptList.addOnScrollListener(
+            object : RecyclerView.OnScrollListener() {
+                override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                    // Sentuhan pengguna menghentikan mode ikuti-live supaya
+                    // daftar tidak melawan saat sedang dibaca. Saat jari
+                    // dilepas, posisi sebenarnya yang menentukan: berhenti
+                    // di puncak berarti ikuti-live menyala lagi.
+                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                        followLive = false
+                    } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                        followLive = !recyclerView.canScrollVertically(-1)
+                        updateJumpLive()
+                    }
+                }
+
+                override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                    // Menggulir sendiri sampai puncak menyalakan lagi mode
+                    // ikuti-live; tidak perlu menekan tombol.
+                    if (!recyclerView.canScrollVertically(-1)) {
+                        followLive = true
+                    }
+                    updateJumpLive()
+                }
+            },
+        )
+    }
+
+    /**
+     * Membuang cache transkrip penuh. Dipanggil saat Reset atau saat halaman
+     * berganti, karena indeks cue di halaman baru mulai dari 1 lagi.
+     */
+    private fun invalidateFullTranscript() {
+        pageGeneration++
+        allCues = null
+        loadingAllCues = false
+        followLive = true
+        updateJumpLive()
+    }
+
+    /**
+     * Mengambil snapshot penuh di latar belakang. Dipanggil otomatis saat
+     * pertama kali atau saat ada celah antara snapshot lama dan cue terbaru;
+     * tidak ada tombol "Muat semua" lagi. Polling tetap membawa 30 cue
+     * terakhir, jadi permintaan ini tidak terjadi setiap 100 ms.
+     */
+    private fun loadFullTranscript() {
+        if (loadingAllCues) return
+        loadingAllCues = true
+
+        val generation = pageGeneration
+        binding.webView.evaluateJavascript(RecorderScript.READ_FULL) { raw ->
+            if (generation != pageGeneration) return@evaluateJavascript
+            loadingAllCues = false
+
+            val payload = VtrPayload.parse(raw?.let { unquote(it) }) ?: return@evaluateJavascript
+            allCues = payload.cues
+            updateTranscript(payload)
+        }
+    }
+
+    /**
+     * Menggabungkan snapshot penuh dengan cue terbaru dari polling.
+     * Polling hanya membawa PREVIEW_MAX cue terakhir; cue lama tetap di
+     * tempatnya, sedangkan cue yang sama diambil versi terbaru supaya
+     * waktu selesainya ikut diperbarui.
+     */
+    private fun mergeCues(
+        all: List<VtrPayload.Cue>,
+        recent: List<VtrPayload.Cue>,
+    ): List<VtrPayload.Cue> {
+        if (recent.isEmpty()) return all
+        val byIndex = LinkedHashMap<Int, VtrPayload.Cue>(all.size + recent.size)
+        for (cue in all) byIndex[cue.index] = cue
+        for (cue in recent) byIndex[cue.index] = cue
+        return byIndex.values.sortedBy { it.index }
+    }
+
+    /**
+     * Membaca posisi bawah video dari halaman. Dipanggil tidak terlalu
+     * sering (sekitar sekali per detik): posisi video hanya berubah saat
+     * tata letak halaman berubah, bukan setiap kali subtitle berganti.
+     */
+    private fun measureVideoBottom() {
+        binding.webView.evaluateJavascript(PlayerFocusScript.READ_VIDEO_BOTTOM) { raw ->
+            val ratio = raw?.trim()?.toDoubleOrNull() ?: return@evaluateJavascript
+            if (ratio > 0.0) placeLiveBar(ratio)
+        }
+    }
+
+    /** Menempelkan bar live tepat di bawah gambar, dengan jarak tipis. */
+    private fun placeLiveBar(ratio: Double) {
+        if (inFullscreen) return
+        val height = binding.webView.height
+        if (height <= 0) return
+
+        val gap = (6 * resources.displayMetrics.density).toInt()
+        val target = (ratio * height).toInt() + gap
+        if (target == barTopPx) {
+            // Posisi tidak berubah, tetapi tinggi panel kontrol bisa
+            // berubah (rotasi/font). Perbarui keputusan tampil panel.
+            binding.liveBar.post { updateRecorderPanel() }
+            return
+        }
+        barTopPx = target
+
+        val lp = binding.liveBar.layoutParams as ConstraintLayout.LayoutParams
+        lp.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+        lp.bottomToBottom = ConstraintLayout.LayoutParams.UNSET
+        lp.topMargin = target
+        binding.liveBar.layoutParams = lp
+        // Kalau sapaan sudah pergi tetapi bar belum sempat tampil karena
+        // posisinya belum terukur, tampilkan sekarang — sudah di tempat benar.
+        if (splashDismissed && !inFullscreen) {
+            binding.liveBar.visibility = View.VISIBLE
+        }
+        binding.liveBar.post { updateRecorderPanel() }
+    }
+
+    /**
+     * Panel hanya ditampilkan kalau pemain sudah terlihat, tidak sedang
+     * fullscreen, dan sisa ruang di bawah bar cukup untuk dibaca. Di layar
+     * pendek (mis. landscape) area hitam bisa hampir tidak ada, dan panel
+     * yang dipaksakan justru menutupi video.
+     */
+    private fun updateRecorderPanel() {
+        val room = binding.controlPanel.top - binding.liveBar.bottom
+        val enough = barTopPx > 0 &&
+            binding.controlPanel.height > 0 &&
+            room >= (140 * resources.displayMetrics.density).toInt()
+        val show = splashDismissed && !inFullscreen && enough
+        val desired = if (show) View.VISIBLE else View.GONE
+        if (binding.recorderPanel.visibility == desired) return
+
+        if (show) {
+            binding.recorderPanel.alpha = 0f
+            binding.recorderPanel.visibility = View.VISIBLE
+            binding.recorderPanel.animate().alpha(1f).setDuration(160).start()
+        } else {
+            binding.recorderPanel.visibility = View.GONE
+        }
+    }
+
+    private fun updateTranscript(payload: VtrPayload) {
+        binding.transcriptStats.text = PayloadFormatter.transcriptStats(payload)
+
+        // Semua cue yang sudah terekam ditampilkan. Snapshot penuh digabung
+        // dengan 30 cue terbaru dari polling; kalau snapshot belum ada atau
+        // ada celah, READ_FULL diambil otomatis di latar belakang.
+        val cached = allCues
+        // Rute SPA bisa mengosongkan perekam tanpa memuat ulang halaman.
+        // Kalau jumlah cue menyusut, snapshot lama sudah tidak berlaku.
+        if (cached != null && payload.cueCount < cached.size) {
+            allCues = null
+        }
+        val full = allCues
+        val cues = if (full == null) {
+            payload.cues
+        } else {
+            mergeCues(full, payload.cues).also { allCues = it }
+        }
+
+        val snapshot = allCues
+        if (payload.cueCount > 0 &&
+            (snapshot == null || payload.cueCount > snapshot.size)
+        ) {
+            loadFullTranscript()
+        }
+
+        val kosong = cues.isEmpty() && payload.pendingCues.isEmpty()
+        binding.transcriptEmpty.visibility = if (kosong) View.VISIBLE else View.GONE
+
+        // Urutan terbalik: cue terbaru dan live di puncak. Selama mode
+        // ikuti-live menyala, daftar selalu dikembalikan ke puncak setiap
+        // ada pembaruan — termasuk saat cue live berganti tanpa jumlah
+        // baris berubah. Kalau pengguna sedang membaca cue lama, posisinya
+        // tidak direbut.
+        transcriptAdapter.submit(cues, payload.pendingCues)
+        if (followLive) {
+            binding.transcriptList.scrollToPosition(0)
+        }
+        updateJumpLive()
+    }
+
+    /**
+     * Tombol "kembali ke live" hanya muncul saat daftar tergulir menjauh
+     * dari puncak. Tombol melayang di kanan bawah daftar; padding bawah
+     * daftar ditambah hanya selama tombol terlihat supaya baris terakhir
+     * tidak tertutup dan tidak ada ruang kosong permanen saat tombol
+     * tersembunyi.
+     */
+    private fun updateJumpLive() {
+        val scrolled = !followLive && binding.transcriptList.canScrollVertically(-1)
+        val target = if (scrolled) View.VISIBLE else View.GONE
+        if (binding.btnJumpLive.visibility != target) {
+            binding.btnJumpLive.visibility = target
+            if (scrolled) {
+                binding.btnJumpLive.alpha = 0f
+                binding.btnJumpLive.animate().alpha(1f).setDuration(120).start()
+            }
+        }
+
+        // 44dp tombol + 12dp margin + 4dp jarak aman.
+        val density = resources.displayMetrics.density
+        val bottom = if (scrolled) (60 * density).toInt() else (8 * density).toInt()
+        if (binding.transcriptList.paddingBottom != bottom) {
+            binding.transcriptList.setPadding(
+                binding.transcriptList.paddingLeft,
+                binding.transcriptList.paddingTop,
+                binding.transcriptList.paddingRight,
+                bottom,
+            )
+        }
+    }
+
+    /** Melompat ke awal cue yang diketuk di transkrip. */
+    private fun seekTo(seconds: Double) {
+        binding.webView.evaluateJavascript(RecorderScript.seek(seconds)) { raw ->
+            if (raw?.trim('"') == "true") {
+                announce(getString(R.string.msg_seek, PayloadFormatter.clock(seconds)))
+            } else {
+                announce(getString(R.string.msg_seek_failed), error = true)
+            }
+        }
     }
 
     private fun applyKeepScreenOn(enable: Boolean, save: Boolean) {
@@ -454,10 +740,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setExpanded(value: Boolean) {
-        expanded = value
-        binding.actionPanel.visibility = if (value) View.VISIBLE else View.GONE
-        binding.chevron.text = if (value) CHEVRON_DOWN else CHEVRON_UP
+    /**
+     * Status lengkap perekam, termasuk ringkasan filter, ditampilkan lewat
+     * dialog supaya tidak memenuhi layar utama. Data diambil dari payload
+     * terakhir; kalau belum ada, tampilkan keterangan singkat.
+     */
+    private fun showStatusDialog() {
+        val payload = lastPayload
+        val message = if (payload == null) {
+            getString(R.string.status_empty)
+        } else {
+            PayloadFormatter.status(payload)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.status_title)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     /**
@@ -586,6 +885,11 @@ class MainActivity : AppCompatActivity() {
 
         binding.splashOverlay.alpha = 1f
         binding.splashOverlay.visibility = View.VISIBLE
+        // Bar dan transkrip belum punya posisi yang benar sebelum video
+        // terukur; menampilkannya sekarang hanya membuat lompatan.
+        binding.liveBar.visibility = View.INVISIBLE
+        binding.recorderPanel.visibility = View.GONE
+        binding.controlPanel.visibility = View.INVISIBLE
 
         binding.splashTitle.text = episodeTitle.orEmpty()
         binding.splashTitle.visibility =
@@ -650,6 +954,12 @@ class MainActivity : AppCompatActivity() {
         splashDismissed = true
         splashPulse?.cancel()
         mainHandler.removeCallbacks(splashDotsTask)
+        // Jangan tampilkan bar di dasar layar lalu melompat: ukur dulu,
+        // dan placeLiveBar() yang menampilkannya begitu posisinya benar.
+        measureVideoBottom()
+        if (!inFullscreen && barTopPx > 0) binding.liveBar.visibility = View.VISIBLE
+        if (!inFullscreen) binding.controlPanel.visibility = View.VISIBLE
+        updateRecorderPanel()
         binding.splashContent.animate().translationYBy(-16f).setDuration(340).start()
         binding.splashOverlay.animate()
             .alpha(0f)
@@ -686,12 +996,10 @@ class MainActivity : AppCompatActivity() {
             ),
         )
 
-        // Status hanya perlu diperbarui saat panel terbuka.
-        if (!expanded) return
-        val status = PayloadFormatter.status(payload)
-        if (status != lastRenderedStatus) {
-            lastRenderedStatus = status
-            binding.statusText.text = status
+        // Transkrip cukup diperbarui dua kali per detik; payload tetap
+        // dibaca sepuluh kali per detik untuk bar live.
+        if (binding.recorderPanel.visibility == View.VISIBLE && transcriptTick++ % 5 == 0) {
+            updateTranscript(payload)
         }
     }
 
@@ -795,9 +1103,5 @@ class MainActivity : AppCompatActivity() {
          * pemain baru terpasang beberapa detik kemudian, jadi tidak 15.
          */
         const val SPLASH_TIMEOUT_MS = 20000L
-
-        // Ditulis sebagai escape supaya source tetap ASCII.
-        const val CHEVRON_UP = "\u25B2"
-        const val CHEVRON_DOWN = "\u25BC"
     }
 }

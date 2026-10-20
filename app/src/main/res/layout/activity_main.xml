@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  WebView penuh, tanpa split. Panel kontrol berupa bar melayang di bawah:
-  ringkas menampilkan satu baris teks subtitle yang sedang live, dan saat
-  diketuk memunculkan tombol-tombolnya.
+  WebView penuh, tanpa split. Bar live menempel tepat di bawah video dan
+  menjadi kepala panel rekaman: strip statistik dan transkrip cue mengisi
+  sisa area hitam sampai dasar layar.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -34,6 +34,108 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
     </FrameLayout>
+
+    <!--
+      Panel rekaman: strip statistik + transkrip cue yang sudah lewat.
+      Tepat di bawah bar live, mengisi sisa area hitam sampai dasar layar.
+
+      Ditulis SEBELUM layar sapaan supaya sapuan itu tetap menutupinya
+      selama pemain belum siap. Sifat clickable menahan sentuhan di area
+      ini agar tidak jatuh ke WebView di belakangnya.
+    -->
+    <LinearLayout
+        android:id="@+id/recorderPanel"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:background="@color/panel_bottom"
+        android:clickable="true"
+        android:focusable="false"
+        android:orientation="vertical"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/controlPanel"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/liveBar">
+
+        <TextView
+            android:id="@+id/transcriptStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:maxLines="2"
+            android:paddingStart="12dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:textColor="@color/meta_text"
+            android:textSize="10sp"
+            android:text="@string/transcript_waiting" />
+
+        <LinearLayout
+            android:id="@+id/transcriptBody"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/transcriptList"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingBottom="8dp"
+                    android:scrollbars="vertical" />
+
+                <TextView
+                    android:id="@+id/transcriptEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:textColor="@color/meta_text"
+                    android:textSize="12sp"
+                    android:text="@string/transcript_waiting" />
+
+                <!--
+                  Tombol melayang untuk kembali ke cue live. Hanya muncul
+                  saat daftar digulir menjauh dari puncak; padding bawah
+                  daftar diatur dinamis dari kode supaya baris terakhir
+                  tidak tertutup tombol.
+                -->
+                <TextView
+                    android:id="@+id/btnJumpLive"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:layout_gravity="bottom|end"
+                    android:layout_marginEnd="12dp"
+                    android:layout_marginBottom="12dp"
+                    android:background="@drawable/bg_jump_live"
+                    android:clickable="true"
+                    android:contentDescription="@string/transcript_jump_live_desc"
+                    android:elevation="6dp"
+                    android:focusable="true"
+                    android:fontFamily="monospace"
+                    android:foreground="?attr/selectableItemBackgroundBorderless"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:outlineProvider="background"
+                    android:text="@string/transcript_jump_live_symbol"
+                    android:textColor="@color/panel_accent"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
 
     <!--
       Layar sapaan. Muncul sesaat setelah episode diketuk dari Home:
@@ -133,8 +235,9 @@
         app:layout_constraintTop_toTopOf="parent" />
 
     <!--
-      Bar melayang. Tingginya mengikuti isi: satu baris saat ringkas,
-      bertambah saat panel tombol ditampilkan.
+      Bar live. Posisinya diatur MainActivity: tepat di bawah <video>.
+      Isinya hanya satu baris subtitle — tombol-tombol pindah ke panel
+      kontrol terpisah di dasar layar.
     -->
     <LinearLayout
         android:id="@+id/liveBar"
@@ -144,84 +247,80 @@
         android:layout_marginEnd="6dp"
         android:layout_marginBottom="6dp"
         android:background="@drawable/bg_live_bar"
-        android:orientation="vertical"
-        android:paddingStart="10dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="6dp"
-        android:paddingBottom="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="10dp"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
 
-        <!-- Baris ringkas: teks live + penanda. Seluruh baris bisa diketuk. -->
-        <LinearLayout
-            android:id="@+id/liveRow"
+        <TextView
+            android:id="@+id/liveText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:minHeight="28dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackground">
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="2dp"
+            android:maxLines="2"
+            android:textColor="@color/panel_accent"
+            android:textSize="15sp"
+            android:text="@string/panel_idle" />
+    </LinearLayout>
 
-            <TextView
-                android:id="@+id/liveText"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:fontFamily="monospace"
-                android:textSize="12sp"
-                android:textColor="@color/panel_accent"
-                android:text="@string/panel_idle" />
+    <!--
+      Panel kontrol, dipisah dari bar live. Semua tombol dan pengaturan
+      berkumpul di satu tempat di dasar layar supaya bar live tetap bersih
+      dan area transkrip di atasnya punya ruang lega.
+    -->
+    <LinearLayout
+        android:id="@+id/controlPanel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="@color/surface"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
 
-            <TextView
-                android:id="@+id/chevron"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingStart="8dp"
-                android:paddingEnd="4dp"
-                android:textSize="12sp"
-                android:textColor="@color/panel_accent"
-                android:text="&#x25B2;" />
-        </LinearLayout>
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider" />
 
-        <!-- Panel tombol. Awalnya tersembunyi. -->
         <LinearLayout
-            android:id="@+id/actionPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView
-                android:id="@+id/statusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:fontFamily="monospace"
-                android:textSize="10sp"
-                android:textColor="@color/panel_text" />
-
-            <CheckBox
-                android:id="@+id/chkKeepScreenOn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:minHeight="0dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:textSize="11sp"
-                android:textColor="@color/panel_text"
-                android:text="@string/chk_keep_screen_on" />
+            android:paddingStart="10dp"
+            android:paddingTop="8dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="8dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="2dp">
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnSaveSrt"
+                    style="@style/ThinButton"
+                    android:text="@string/btn_save_srt" />
+
+                <Button
+                    android:id="@+id/btnSaveJson"
+                    style="@style/ThinButton"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/btn_save_json" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/btnPickFolder"
@@ -233,33 +332,33 @@
                     style="@style/ThinButton"
                     android:layout_marginStart="6dp"
                     android:text="@string/btn_reset" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="2dp">
 
                 <Button
-                    android:id="@+id/btnSaveJson"
-                    style="@style/ThinButton"
-                    android:text="@string/btn_save_json" />
-
-                <Button
-                    android:id="@+id/btnSaveSrt"
+                    android:id="@+id/btnInfo"
                     style="@style/ThinButton"
                     android:layout_marginStart="6dp"
-                    android:text="@string/btn_save_srt" />
+                    android:text="@string/btn_info" />
             </LinearLayout>
+
+            <CheckBox
+                android:id="@+id/chkKeepScreenOn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:minHeight="0dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:textColor="@color/panel_text"
+                android:textSize="11sp"
+                android:text="@string/chk_keep_screen_on" />
         </LinearLayout>
     </LinearLayout>
 
     <!--
       Notifikasi penyimpanan. Muncul dengan animasi kecil saat ekspor
-      dimulai dan selesai ("Menyimpan…" lalu "Tersimpan: nama file"),
-      lalu memudar sendiri. Tidak clickable supaya sentuhan tetap jatuh
-      ke WebView di bawahnya.
+      dimulai dan selesai ("Menyimpan…" lalu "Tersimpan: nama file").
+      Ditaruh tepat di atas panel kontrol — dekat dengan tombol yang
+      ditekan, tanpa menutupi video.
     -->
     <TextView
         android:id="@+id/saveToast"
@@ -267,7 +366,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginBottom="14dp"
+        android:layout_marginBottom="8dp"
         android:background="@drawable/bg_save_toast"
         android:clickable="false"
         android:focusable="false"
@@ -282,7 +381,7 @@
         android:textColor="@color/panel_accent"
         android:textSize="13sp"
         android:visibility="gone"
-        app:layout_constraintBottom_toTopOf="@id/liveBar"
+        app:layout_constraintBottom_toTopOf="@id/controlPanel"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 

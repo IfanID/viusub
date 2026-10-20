@@ -318,6 +318,20 @@ object PlayerFocusScript {
 """
 
     /**
+     * Rasio posisi bawah <video> terhadap tinggi viewport (0..1).
+     *
+     * Dipakai untuk menempatkan bar live tepat di bawah gambar. Rasio,
+     * bukan piksel: nilainya tidak bergantung pada density layar maupun
+     * zoom halaman. -1 kalau video belum ada.
+     */
+    const val READ_VIDEO_BOTTOM =
+        "(function(){var vs=document.querySelectorAll('video');if(!vs.length)return -1;" +
+            "var best=null,area=0;for(var i=0;i<vs.length;i++){var r=vs[i].getBoundingClientRect();" +
+            "var a=r.width*r.height;if(a>area){area=a;best=r;}}" +
+            "if(!best)return -1;var h=window.innerHeight||1;" +
+            "return Math.max(0,Math.min(1,best.bottom/h))})()"
+
+    /**
      * Kode kesiapan untuk layar sapaan:
      *   "2" — zona pemain sudah dipromosikan, tampilan bentuk akhir;
      *   "0" — belum apa-apa.
