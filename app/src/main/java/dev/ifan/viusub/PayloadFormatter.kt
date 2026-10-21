@@ -39,6 +39,14 @@ object PayloadFormatter {
         append("cakupan ").append(p.coveragePercent ?: "-").append('%')
         if (p.gapCount > 0) append("  lubang:").append(p.gapCount)
 
+        p.holes.firstOrNull()?.let { hole ->
+            append('\n')
+            append("celah rekaman ").append(clock(hole.from)).append(" → ").append(clock(hole.to))
+            if (p.provisionalCount > 0) {
+                append("  ·  ").append(p.provisionalCount).append(" cue belum bernomor")
+            }
+        }
+
         append('\n')
         append(
             when {

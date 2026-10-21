@@ -31,7 +31,19 @@ data class VtrPayload(
     val filters: Filters,
     val cues: List<Cue>,
     val pendingCues: List<Cue>,
+    /**
+     * Rentang yang dilewati tanpa ditonton. Selama daftar ini tidak kosong,
+     * cue setelah celah pertama belum bisa diberi nomor pasti.
+     */
+    val holes: List<Hole>,
+    val provisionalCount: Int,
 ) {
+    /** Celah rekaman dalam bentuk waktu dan durasi detik. */
+    data class Hole(
+        val from: String,
+        val to: String,
+        val seconds: Int,
+    )
     /** Jumlah kandidat yang ditolak tiap filter pada scan terakhir. */
     data class Filters(
         val bmpui: Int,
@@ -61,6 +73,11 @@ data class VtrPayload(
          * tidak muncul sebagai cue baru tanpa end.
          */
         val replay: Boolean = false,
+        /**
+         * Nomor cue belum pasti karena ada celah rekaman sebelum cue ini.
+         * UI menampilkan tanda "?" alih-alih angka.
+         */
+        val provisional: Boolean = false,
     )
 
     companion object {
@@ -107,6 +124,8 @@ data class VtrPayload(
                     } ?: Filters(0, 0, 0, 0, 0, 0, 0, 0),
                     cues = parseCues(root.optJSONArray("cues")),
                     pendingCues = parseCues(root.optJSONArray("pendingCues")),
+                    holes = parseHoles(root.optJSONArray("holes")),
+                    provisionalCount = root.optInt("provisionalCount", 0),
                 )
             } catch (e: Exception) {
                 null
@@ -126,6 +145,26 @@ data class VtrPayload(
                             duration = c.optString("duration", ""),
                             text = c.optString("text", ""),
                             replay = c.optBoolean("replay", false),
+                            provisional = c.optBoolean("provisional", false),
+                        ),
+                    )
+                }
+            }
+        }
+
+        private fun parseHoles(array: JSONArray?): List<Hole> {
+            if (array == null) return emptyList()
+            return buildList {
+                for (i in 0 until array.length()) {
+                    val h = array.optJSONObject(i) ?: continue
+                    val from = h.optString("from", "")
+                    val to = h.optString("to", "")
+                    if (from.isBlank() || to.isBlank()) continue
+                    add(
+                        Hole(
+                            from = from,
+                            to = to,
+                            seconds = h.optInt("seconds", 0),
                         ),
                     )
                 }

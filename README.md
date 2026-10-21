@@ -59,7 +59,7 @@ diurutkan dari episode terbaru ke yang terlama.
 ├─────────────────────────────────┤
 │ cue 12 · ▸ 1 live · cakupan 98% │ ← strip statistik
 │ 1:05:33 / 1:32:33 · sisa 27:00  │
-│ ▸11 1:05:30 → …  Luar biasa.    │ ← transkrip, terbaru di atas
+│ ((•))11 1:05:30 → … Luar biasa. │ ← transkrip, live bernomor (ikon siaran)
 │ 10  1:05:20 → 1:05:23  Cerah.   │
 │  9  1:05:12 → 1:05:15  Benar.   │
 │                          (↑)    │ ← tombol live melayang saat digulir
@@ -88,11 +88,17 @@ diurutkan dari episode terbaru ke yang terlama.
 - **Panel transkrip** di bawah bar mengisi sisa area hitam: strip statistik
   (jumlah cue, cue live, cakupan, lubang, posisi/durasi) dan **semua cue yang
   sudah terekam** dengan **urutan terbalik** — cue terbaru (dan cue live) di
-  puncak, cue lama di bawah. Cue live diberi latar cyan tipis dan awalan `▸`.
-  Tiap baris menampilkan nomor, waktu **mulai → selesai**, dan teksnya; cue
-  yang masih live memakai `…` sebagai akhir karena waktunya belum diketahui.
-  Nomor cue yang sudah selesai diberi cyan lembut, sedangkan nomor cue live
-  tetap cyan terang.
+  puncak, cue lama di bawah. Cue live diberi latar cyan tipis dan **ikon
+  siaran di dalam lingkaran kecil** pada kolom nomor; kalau nomornya belum
+  pasti, ikon itu diikuti `?` besar berwarna amber.
+  Tiap baris menampilkan nomor/status, waktu **mulai →
+  selesai**, dan teksnya; cue yang masih live memakai `…` sebagai akhir
+  karena waktunya belum diketahui. Nomor cue yang sudah selesai diberi cyan
+  lembut, sedangkan cue live tetap cyan terang. Cue ulang memakai `↺`
+  diikuti nomor lamanya (mis. `↺4`); kalau cue itu berada setelah celah yang
+  belum ditonton, nomornya diganti `↺?` amber. Cue setelah celah rekaman
+  yang belum ditonton memakai `?` berwarna amber; penjelasannya ada di
+  bagian **Nomor cue dan celah rekaman**.
   Daftar menggulir sendiri hanya kalau pengguna sedang berada di puncak;
   kalau sedang membaca cue lama, posisinya tidak direbut. Saat tergulir
   menjauh, tombol lingkaran **`↑`** melayang di kanan bawah daftar untuk
@@ -111,33 +117,57 @@ diurutkan dari episode terbaru ke yang terlama.
   langsung ke currentTime: perekam memakai kontrol Home pada seek bar
   Bitmovin (player.seek(0)), dengan fallback jeda–seek–play, karena seek
   langsung ke awal stream membuat Bitmovin memuat ulang lalu berhenti di
-  frame pertama. Klik berulang pada baris yang sudah aktif tidak menyentuh
-  pemutar lagi; toleransi posisi 0,3 detik (0,5 detik untuk cue awal) juga
-  meredam tap/Enter kedua yang jatuh hampir di posisi yang sama. Kalau
-  pemutar masih memproses seek pertama (kurang dari 2,5 detik), tap kedua
-  ditolak dengan pesan bahwa pemutar masih sibuk — dua seek beruntun saat
-  Bitmovin belum selesai justru bisa membuatnya tersendat. Seek tidak diulang otomatis. Kalau skrip halaman belum
-  terpasang atau video belum muncul, klik dicoba ulang sekali; kegagalan baru
-  dilaporkan setelah itu. Sesudah lompatan, teks subtitle yang masih
+  frame pertama. Klik berulang pada baris yang sudah aktif tidak menggeser
+  posisi pemutar lagi; toleransi posisi 0,3 detik (0,5 detik untuk cue awal)
+  juga meredam tap/Enter kedua yang jatuh hampir di posisi yang sama.
+  Semua permintaan lompatan diatur satu `PlaybackJumpController`. Kalau
+  pemutar masih memproses seek sebelumnya, permintaan berikutnya tidak
+  langsung ditolak: controller menunggu, mencoba lagi, dan memakai target
+  terbaru kalau pengguna mengetuk baris lain. Lompatan juga memastikan video
+  benar-benar berjalan, bukan hanya berpindah posisi: setelah seek, halaman
+  dipanggil untuk memutar video yang sama, lalu controller memeriksa bahwa
+  posisi sudah dekat target dan waktu bergerak maju. Kalau posisi sudah
+  dekat tetapi video mengaku sedang berjalan tanpa gambar bergerak,
+  controller meminta halaman melakukan pemulihan aktif: play ulang, siklus
+  pause/play singkat, dorongan `currentTime` 0,5 detik agar decoder
+  mengambil segmen baru, dan klik tombol Play milik pemutar Bitmovin kalau
+  kontrolnya masih menampilkan tombol itu. Pemulihan tetap dilakukan kalau
+  status `seeking` macet, dan `playbackRate` yang nol/tidak wajar
+  dikembalikan ke 1. Pemulihan dicoba hingga empat kali; kalau tetap beku,
+  status gagal menyebut video belum berjalan. Kalau `readyState` menunjukkan
+  data memang belum cukup, controller tidak menganggapnya decoder beku:
+  ia menunggu buffer sampai dua jendela verifikasi tambahan sebelum
+  menyerah. Skrip halaman yang belum terpasang dipasang ulang lalu dicoba
+  lagi; kegagalan baru dilaporkan setelah batas percobaan habis. Panel
+  status kecil di atas transkrip menampilkan target, buffer, fase
+  **Memulihkan**, dan percobaan ulang, dengan tombol Batal, Coba lagi, atau
+  Putar sesuai keadaan. Status sukses hilang sendiri; status gagal tetap
+  sampai ditutup. Sesudah
+  lompatan, teks subtitle yang masih
   tertinggal dari posisi lama tidak dicatat sebagai cue baru — perekam
   menunggu overlay benar-benar berganti. Daftar menampilkan garis pemisah
   **"N cue baru sejak lompat ke …"** (atau "belum ada cue baru") tepat di
   bawah baris yang terekam setelah lompatan, jadi cue lama dan cue hasil
   lompatan bisa dibedakan. Garis itu hilang sendiri setelah posisi video
   melewati cue lama terakhir (titik sebelum lompatan), karena setelah itu
-  semua cue di depan adalah rekaman baru. Kalau video dimundurkan ke bagian
+  semua cue di depan adalah rekaman baru. Kalau lompatan melewati bagian
+  yang belum pernah ditonton, baris celah yang tampil dan garis pemisah lama
+  tidak ditampilkan dua kali — lihat **Nomor cue dan celah rekaman**. Kalau
+  video dimundurkan ke bagian
   yang sudah pernah terekam, subtitle yang tampil lagi dikenali sebagai
   **putar ulang** lewat kecocokan teks dan rentang waktunya. Baris di puncak
-  memakai nomor serta waktu selesai cue lama (mis. `4 · 00:05 → 00:08`)
-  dengan tanda `↺`, dan cue ulang tidak ditambahkan ke rekaman. Statistik
+  memakai tanda `↺` diikuti nomor lama serta waktu selesai cue itu (mis.
+  `↺4 · 00:05 → 00:08`), dan cue ulang tidak ditambahkan ke rekaman. Statistik
   menampilkan jumlahnya sebagai `ulang`, bukan `live`. Kalau pemutar
   Bitmovin tetap berhenti di frame pertama sesudah seek/rewind — status
   masih "playing" tetapi waktu tidak maju — perekam menunggu empat detik,
   lalu mendorong posisi 0,5 detik untuk memancing segmen baru; percobaan
   kedua memakai 1,0 detik dari posisi macet, bukan mengirim target yang
-  sama lagi. Setiap seek baru dari pengguna membuka jendela pemulihan baru.
-  Pemulihan ini tidak berjalan saat video di-pause, jadi berhenti untuk
-  membaca subtitle tetap aman. Panel hilang saat
+  sama lagi. Setiap lompatan membuka jendela pemulihan delapan detik:
+  selama jendela itu perekam meminta play berulang (termasuk kalau video
+  berhenti sendiri setelah seek) dan memakai jeda nudge yang lebih cepat.
+  Di luar jendela lompatan, perilaku pause pengguna tetap dihormati.
+  Panel hilang saat
   fullscreen atau saat sisa ruang di atas panel kontrol kurang dari 140dp.
 - **Notifikasi simpan** muncul tepat di atas panel kontrol, dekat dengan
   tombol yang ditekan dan tidak menutupi video.
@@ -268,6 +298,12 @@ ikut ditulis, asal posisinya memang setelah cue sebelumnya.
 JSON disimpan apa adanya, bukan dimodelkan ulang di Kotlin, supaya tidak ada
 field yang hilang.
 
+Kalau masih ada celah rekaman, tombol Simpan SRT/JSON lebih dulu menampilkan
+peringatan berisi rentang celah dan jumlah cue yang belum bernomor. Ekspor
+tetap boleh dilanjutkan. SRT selalu memakai nomor 1..N karena itu syarat
+format; JSON membawa `provisional` per cue, `holes`, dan `provisionalCount`
+supaya ketidakkepastian nomor tidak hilang dari data mentah.
+
 Folder dicek lebih dulu saat menyimpan: kalau belum pernah dipilih, pemilih
 folder langsung terbuka dan ekspor dilanjutkan otomatis setelah folder
 ditentukan (tidak perlu menekan Simpan dua kali). Setiap ekspor memunculkan
@@ -288,6 +324,37 @@ storage.
 `querySelectorAll('span,div,p,em,b,strong')` di seluruh dokumen, lalu
 disaring. Setiap scan menghasilkan daftar kandidat, diurutkan dari yang paling
 atas, lalu digabung jadi cue.
+
+### Nomor cue dan celah rekaman
+
+Nomor cue dihitung dari urutan waktu, bukan dari jumlah baris yang kebetulan
+terbaca. Karena itu perekam melacak rentang video yang benar-benar ditonton
+(`watchedRanges`) dan lompatan maju yang belum ditonton (`holes`).
+
+- Lompatan maju minimal 2 detik membuat celah. Cue setelah celah ditampilkan
+  dengan nomor `?` (belum bernomor) sampai seluruh isi celah ditonton.
+- Kolom nomor memakai penanda status: ikon siaran di dalam lingkaran untuk
+  cue live, ikon siaran + `?` amber untuk live yang belum bernomor, `↺N`
+  teal untuk cue ulang, `↺?` amber untuk cue ulang yang belum bernomor, dan
+  `?` amber besar untuk cue yang belum bernomor. Angka biasa berarti nomor
+  sudah pasti.
+- Kalau pemutar melompat lebih dari 3 detik tanpa event seek — misalnya app
+  kembali dari background — itu juga dianggap celah. Nudge pemulihan Bitmovin
+  0,5–1,0 detik diabaikan karena di bawah batas 2 detik.
+- Lompatan mundur, atau lompatan ke bagian yang sudah pernah ditonton, tidak
+  membuat celah dan tidak menyembunyikan nomor.
+- Kalau rekaman dimulai di posisi lebih dari 10 detik (mis. lanjut menonton),
+  rentang 0 sampai posisi itu dianggap celah. Posisi 10 detik ke bawah
+  dianggap utuh.
+- Baris `↯ celah 00:09 → 18:22 · N cue belum bernomor · ketuk untuk isi`
+  muncul di antara cue bernomor dan yang belum. Mengetuknya melompat ke satu
+  detik sebelum awal celah supaya bisa diputar ulang. Nomor kembali otomatis
+  setelah celah habis ditonton; mengisi sebagian atau melompat lagi tetap
+  membiarkan tanda `?`.
+- Tombol Reset memulai baseline baru di posisi video saat itu: nomor cue
+  mulai lagi dari 1, bukan langsung menjadi belum bernomor.
+- Garis lama "N cue baru sejak lompat ke …" tetap dipakai untuk lompatan yang
+  tidak membuat celah; saat ada celah, baris celah yang tampil.
 
 ### Filter kandidat
 

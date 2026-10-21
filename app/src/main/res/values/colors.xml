@@ -8,6 +8,10 @@
     <!-- Nomor cue yang sudah selesai: cyan lembut, senada dengan aksen
          live tetapi tidak sekeras status live. -->
     <color name="cue_number">#4DD0E1</color>
+    <!-- Nomor cue yang belum pasti karena ada celah rekaman. -->
+    <color name="provisional_mark">#FFB74D</color>
+    <!-- Garis tepi panel status lompatan di atas transkrip. -->
+    <color name="jump_stroke">#6600E5FF</color>
     <color name="thumb_placeholder">#1E1E1E</color>
     <color name="divider">#1F1F1F</color>
     <color name="surface">#0B0B0B</color>

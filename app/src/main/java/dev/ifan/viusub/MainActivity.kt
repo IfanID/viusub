@@ -90,7 +90,30 @@ class MainActivity : AppCompatActivity() {
     private var layoutTick = 0
     private var transcriptTick = 0
 
-    private val transcriptAdapter = TranscriptAdapter(this) { seconds -> seekTo(seconds) }
+    private val transcriptAdapter = TranscriptAdapter(
+        this,
+        onSeek = { seconds -> ensureJumpController().jumpTo(seconds) },
+        onFillHole = { seconds ->
+            ensureJumpController().jumpTo(
+                (seconds - 1.0).coerceAtLeast(0.0),
+                gap = true,
+            )
+        },
+    )
+
+    /**
+     * Pengatur semua lompatan transkrip. Dibuat malas karena membutuhkan
+     * WebView yang baru ada setelah layout dipasang.
+     */
+    private var jumpController: PlaybackJumpController? = null
+    private var jumpStatusState: PlaybackJumpController.State? = null
+
+    /** Menyembunyikan status sukses; status gagal tetap sampai ditutup. */
+    private val hideJumpStatus = Runnable {
+        if (jumpStatusState?.phase == PlaybackJumpController.Phase.SUCCESS) {
+            binding.jumpStatusBar.visibility = View.GONE
+        }
+    }
 
     /**
      * Seluruh cue yang sudah terekam; null selama snapshot penuh belum
@@ -100,6 +123,13 @@ class MainActivity : AppCompatActivity() {
      */
     private var allCues: List<VtrPayload.Cue>? = null
     private var loadingAllCues = false
+
+    /**
+     * Sidik celah rekaman terakhir. Saat celah baru muncul atau selesai
+     * ditonton, nomor cue lama ikut berubah; polling hanya membawa 30 cue
+     * terakhir, jadi snapshot penuh perlu diambil ulang.
+     */
+    private var lastHoleState = ""
 
     /**
      * Apakah daftar transkrip sedang mengikuti cue live di puncak.
@@ -199,6 +229,7 @@ class MainActivity : AppCompatActivity() {
 
         setupLiveBar()
         setupTranscript()
+        setupJumpStatus()
 
         if (savedInstanceState == null) {
             startSplash()
@@ -533,9 +564,11 @@ class MainActivity : AppCompatActivity() {
      * berganti, karena indeks cue di halaman baru mulai dari 1 lagi.
      */
     private fun invalidateFullTranscript() {
+        jumpController?.cancel()
         pageGeneration++
         allCues = null
         loadingAllCues = false
+        lastHoleState = ""
         followLive = true
         transcriptAdapter.clearSeekMark()
         updateJumpLive()
@@ -573,10 +606,13 @@ class MainActivity : AppCompatActivity() {
         recent: List<VtrPayload.Cue>,
     ): List<VtrPayload.Cue> {
         if (recent.isEmpty()) return all
-        val byIndex = LinkedHashMap<Int, VtrPayload.Cue>(all.size + recent.size)
-        for (cue in all) byIndex[cue.index] = cue
-        for (cue in recent) byIndex[cue.index] = cue
-        return byIndex.values.sortedBy { it.index }
+        // Kunci memakai waktu mulai, bukan indeks: setelah celah ditonton,
+        // nomor semua cue di belakangnya bergeser. Indeks yang berubah tidak
+        // boleh membuat baris lama terduplikasi atau tertimpa.
+        val byStart = LinkedHashMap<String, VtrPayload.Cue>(all.size + recent.size)
+        for (cue in all) byStart[cue.start] = cue
+        for (cue in recent) byStart[cue.start] = cue
+        return byStart.values.sortedBy { PayloadFormatter.parseTime(it.start) }
     }
 
     /**
@@ -647,6 +683,15 @@ class MainActivity : AppCompatActivity() {
     private fun updateTranscript(payload: VtrPayload) {
         binding.transcriptStats.text = PayloadFormatter.transcriptStats(payload)
 
+        // Celah yang muncul atau selesai mengubah nomor cue lama. Polling
+        // hanya membawa 30 cue terakhir, jadi ambil snapshot penuh lagi.
+        val holeState = payload.holes.joinToString("|") { "${it.from}>${it.to}" }
+        if (holeState != lastHoleState) {
+            lastHoleState = holeState
+            transcriptAdapter.clearSeekMark()
+            if (!loadingAllCues) loadFullTranscript()
+        }
+
         // Semua cue yang sudah terekam ditampilkan. Snapshot penuh digabung
         // dengan 30 cue terbaru dari polling; kalau snapshot belum ada atau
         // ada celah, READ_FULL diambil otomatis di latar belakang.
@@ -685,6 +730,8 @@ class MainActivity : AppCompatActivity() {
             cues,
             payload.pendingCues,
             PayloadFormatter.parseTime(payload.position),
+            payload.holes,
+            payload.provisionalCount,
         )
         if (followLive) {
             binding.transcriptList.scrollToPosition(0)
@@ -724,56 +771,154 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Melompat ke awal cue yang diketuk di transkrip.
-     *
-     * Skrip halaman bisa belum terpasang (perpindahan SPA atau muat ulang)
-     * atau elemen video belum muncul saat pemutar masih dimuat. Untuk dua
-     * kasus itu klik diulang sekali: skrip dipasang ulang, lalu seek dicoba
-     * lagi setelah jeda pendek. Kegagalan baru dilaporkan kalau percobaan
-     * kedua juga tidak menemukan video.
+     * Satu pintu untuk semua lompatan dari transkrip. Controller mengatur
+     * antrean, percobaan ulang, dan verifikasi; Activity hanya menyediakan
+     * WebView serta callback pesan.
      */
-    private fun seekTo(seconds: Double, retry: Boolean = true) {
-        binding.webView.evaluateJavascript(RecorderScript.seek(seconds)) { raw ->
-            val result = parseSeekResult(raw)
-            if (result?.optString("reason") == "busy") {
-                // Tap/Enter kedua datang saat seek pertama belum selesai.
-                // Jangan menumpuk seek: lompatan pertama dibiarkan selesai.
-                announce(getString(R.string.msg_seek_busy))
-                return@evaluateJavascript
-            }
-            if (result?.optBoolean("ok") == true) {
-                // target dari halaman sudah dijepit ke durasi video, jadi
-                // notifikasi tidak menjanjikan waktu yang tidak ada.
-                val target = result.optDouble("target", seconds)
+    private fun ensureJumpController(): PlaybackJumpController =
+        jumpController ?: PlaybackJumpController(
+            webView = binding.webView,
+            handler = mainHandler,
+            installScripts = { installPageScripts(binding.webView) },
+            onJumped = { target, cueCount ->
                 // cueCount adalah jumlah cue selesai SEBELUM lompatan;
-                // baris di atas angka itu nanti ditandai sebagai cue baru.
+                // baris di atas angka itu ditandai sebagai cue baru.
                 transcriptAdapter.markSeek(
-                    cueCount = result.optInt("cueCount", 0),
+                    cueCount = cueCount,
                     clock = PayloadFormatter.clock(target),
                 )
                 announce(getString(R.string.msg_seek, PayloadFormatter.clock(target)))
-                // Garis pemisah muncul pada pembaruan transkrip berikutnya;
-                // payload lama tidak dipakai supaya deteksi "cue menyusut"
-                // (perpindahan episode) tidak salah menghapus batas ini.
-                return@evaluateJavascript
-            }
-            if (retry) {
-                if (result?.optString("reason") == "no-script") {
-                    installPageScripts(binding.webView)
+            },
+            onFailed = { reason ->
+                val message = when (reason) {
+                    "stalled" -> R.string.msg_seek_stalled
+                    "timeout" -> R.string.msg_seek_timeout
+                    else -> R.string.msg_seek_failed
                 }
-                mainHandler.postDelayed({ seekTo(seconds, retry = false) }, 400)
-                return@evaluateJavascript
-            }
-            announce(getString(R.string.msg_seek_failed), error = true)
+                announce(getString(message), error = true)
+            },
+            onState = { state -> renderJumpStatus(state) },
+        ).also { jumpController = it }
+
+    /**
+     * Panel status kecil di atas transkrip. Panel ini hanya menampilkan
+     * keadaan controller dan meneruskan aksi; tidak pernah menyentuh
+     * WebView atau menghitung target sendiri.
+     */
+    private fun setupJumpStatus() {
+        binding.jumpStatusAction.setOnClickListener { onJumpStatusAction() }
+        binding.jumpStatusClose.setOnClickListener {
+            mainHandler.removeCallbacks(hideJumpStatus)
+            jumpController?.cancel()
         }
     }
 
-    /** Hasil seek dari halaman berupa JSON; null kalau tidak terbaca. */
-    private fun parseSeekResult(raw: String?): JSONObject? = try {
-        val json = raw?.let { unquote(it) } ?: return null
-        JSONObject(json)
-    } catch (e: Exception) {
-        null
+    private fun onJumpStatusAction() {
+        when (jumpStatusState?.phase) {
+            PlaybackJumpController.Phase.SENDING,
+            PlaybackJumpController.Phase.QUEUED,
+            PlaybackJumpController.Phase.BUFFERING,
+            PlaybackJumpController.Phase.RECOVERING,
+            PlaybackJumpController.Phase.RETRYING,
+            -> jumpController?.cancel()
+            PlaybackJumpController.Phase.PAUSED -> jumpController?.playNow()
+            PlaybackJumpController.Phase.FAILED -> jumpController?.retry()
+            else -> Unit
+        }
+    }
+
+    private fun renderJumpStatus(state: PlaybackJumpController.State) {
+        jumpStatusState = state
+        mainHandler.removeCallbacks(hideJumpStatus)
+        if (state.phase == PlaybackJumpController.Phase.IDLE) {
+            binding.jumpStatusBar.visibility = View.GONE
+            return
+        }
+
+        val clock = PayloadFormatter.clock(state.target)
+        binding.jumpStatusBar.visibility = View.VISIBLE
+        binding.jumpStatusText.text = when (state.phase) {
+            PlaybackJumpController.Phase.SENDING -> getString(
+                if (state.gap) R.string.jump_status_gap else R.string.jump_status_sending,
+                clock,
+            )
+            PlaybackJumpController.Phase.QUEUED ->
+                getString(R.string.jump_status_queued, clock)
+            PlaybackJumpController.Phase.BUFFERING ->
+                getString(R.string.jump_status_buffering, clock)
+            PlaybackJumpController.Phase.RECOVERING ->
+                getString(R.string.jump_status_recovering, clock)
+            PlaybackJumpController.Phase.RETRYING ->
+                getString(R.string.jump_status_retrying, state.attempt, clock)
+            PlaybackJumpController.Phase.PAUSED ->
+                getString(R.string.jump_status_paused, clock)
+            PlaybackJumpController.Phase.SUCCESS ->
+                getString(R.string.jump_status_success, clock)
+            PlaybackJumpController.Phase.FAILED -> when (state.reason) {
+                "stalled" -> getString(R.string.msg_seek_stalled)
+                "timeout" -> getString(R.string.msg_seek_timeout)
+                else -> getString(R.string.msg_seek_failed)
+            }
+            PlaybackJumpController.Phase.IDLE -> ""
+        }
+        binding.jumpStatusText.setTextColor(
+            ContextCompat.getColor(
+                this,
+                when (state.phase) {
+                    PlaybackJumpController.Phase.FAILED -> R.color.error_text
+                    PlaybackJumpController.Phase.PAUSED -> R.color.provisional_mark
+                    PlaybackJumpController.Phase.SUCCESS -> R.color.panel_accent
+                    else -> R.color.panel_text
+                },
+            ),
+        )
+
+        val running = when (state.phase) {
+            PlaybackJumpController.Phase.SENDING,
+            PlaybackJumpController.Phase.QUEUED,
+            PlaybackJumpController.Phase.BUFFERING,
+            PlaybackJumpController.Phase.RECOVERING,
+            PlaybackJumpController.Phase.RETRYING,
+            -> true
+            else -> false
+        }
+        binding.jumpStatusProgress.visibility =
+            if (running) View.VISIBLE else View.GONE
+
+        when (state.phase) {
+            PlaybackJumpController.Phase.SENDING,
+            PlaybackJumpController.Phase.QUEUED,
+            PlaybackJumpController.Phase.BUFFERING,
+            PlaybackJumpController.Phase.RECOVERING,
+            PlaybackJumpController.Phase.RETRYING,
+            -> {
+                binding.jumpStatusAction.visibility = View.VISIBLE
+                binding.jumpStatusAction.text =
+                    getString(R.string.jump_action_cancel)
+                binding.jumpStatusClose.visibility = View.GONE
+            }
+            PlaybackJumpController.Phase.PAUSED -> {
+                binding.jumpStatusAction.visibility = View.VISIBLE
+                binding.jumpStatusAction.text =
+                    getString(R.string.jump_action_play)
+                binding.jumpStatusClose.visibility = View.VISIBLE
+            }
+            PlaybackJumpController.Phase.FAILED -> {
+                binding.jumpStatusAction.visibility = View.VISIBLE
+                binding.jumpStatusAction.text =
+                    getString(R.string.jump_action_retry)
+                binding.jumpStatusClose.visibility = View.VISIBLE
+            }
+            PlaybackJumpController.Phase.SUCCESS -> {
+                binding.jumpStatusAction.visibility = View.GONE
+                binding.jumpStatusClose.visibility = View.GONE
+                mainHandler.postDelayed(hideJumpStatus, JUMP_STATUS_HIDE_MS)
+            }
+            PlaybackJumpController.Phase.IDLE -> {
+                binding.jumpStatusAction.visibility = View.GONE
+                binding.jumpStatusClose.visibility = View.GONE
+            }
+        }
     }
 
     private fun applyKeepScreenOn(enable: Boolean, save: Boolean) {
@@ -857,21 +1002,25 @@ class MainActivity : AppCompatActivity() {
             runCatching { pickFolder.launch(null) }
             return
         }
-        announce(getString(R.string.msg_saving_json))
         withFullPayload { json, payload ->
             if (json == null || payload == null || payload.cueCount == 0) {
                 say(getString(R.string.msg_nothing))
                 announce(getString(R.string.msg_nothing), error = true)
                 return@withFullPayload
             }
-            val name = SrtWriter.jsonFileName(payload, episodeTitle)
-            val error = ExportStore.writeJson(this, tree, name, prettyPrint(json))
-            if (error == null) {
-                say(getString(R.string.msg_saved, name))
-                announce(getString(R.string.msg_saved, name))
-            } else {
-                say(error)
-                announce(error, error = true)
+            val p = payload
+            val text = json
+            confirmGapExport(p) {
+                announce(getString(R.string.msg_saving_json))
+                val name = SrtWriter.jsonFileName(p, episodeTitle)
+                val error = ExportStore.writeJson(this, tree, name, prettyPrint(text))
+                if (error == null) {
+                    say(getString(R.string.msg_saved, name))
+                    announce(getString(R.string.msg_saved, name))
+                } else {
+                    say(error)
+                    announce(error, error = true)
+                }
             }
         }
     }
@@ -885,7 +1034,6 @@ class MainActivity : AppCompatActivity() {
             runCatching { pickFolder.launch(null) }
             return
         }
-        announce(getString(R.string.msg_saving_srt))
         withFullPayload { _, payload ->
             if (payload == null ||
                 (payload.cues.isEmpty() && payload.pendingCues.isEmpty())
@@ -894,16 +1042,46 @@ class MainActivity : AppCompatActivity() {
                 announce(getString(R.string.msg_nothing), error = true)
                 return@withFullPayload
             }
-            val name = SrtWriter.fileName(payload, episodeTitle)
-            val error = ExportStore.writeSrt(this, tree, name, SrtWriter.build(payload))
-            if (error == null) {
-                say(getString(R.string.msg_saved, name))
-                announce(getString(R.string.msg_saved, name))
-            } else {
-                say(error)
-                announce(error, error = true)
+            val p = payload
+            confirmGapExport(p) {
+                announce(getString(R.string.msg_saving_srt))
+                val name = SrtWriter.fileName(p, episodeTitle)
+                val error = ExportStore.writeSrt(this, tree, name, SrtWriter.build(p))
+                if (error == null) {
+                    say(getString(R.string.msg_saved, name))
+                    announce(getString(R.string.msg_saved, name))
+                } else {
+                    say(error)
+                    announce(error, error = true)
+                }
             }
         }
+    }
+
+    /**
+     * Ekspor tetap diizinkan walau ada celah, tetapi diberi peringatan.
+     * SRT selalu bernomor 1..N (syarat format); nomor cue di JSON dan di
+     * layar bisa berbeda selama celah belum ditonton.
+     */
+    private fun confirmGapExport(payload: VtrPayload, proceed: () -> Unit) {
+        val hole = payload.holes.firstOrNull()
+        if (hole == null) {
+            proceed()
+            return
+        }
+        val from = PayloadFormatter.clock(hole.from)
+        val to = PayloadFormatter.clock(hole.to)
+        val message = if (payload.provisionalCount > 0) {
+            getString(R.string.export_gap_message, from, to, payload.provisionalCount)
+        } else {
+            getString(R.string.export_gap_message_empty, from, to)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.export_gap_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.export_gap_continue) { _, _ -> proceed() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun withFullPayload(block: (String?, VtrPayload?) -> Unit) {
@@ -1132,6 +1310,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
+        jumpController?.destroy()
         splashPulse?.cancel()
         binding.webView.stopLoading()
         binding.webView.destroy()
@@ -1140,6 +1319,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val POLL_MS = 100L
+        const val JUMP_STATUS_HIDE_MS = 1600L
         const val START_URL = "https://viu.com"
         const val KEY_KEEP_SCREEN = "keep_screen_on"
         const val EXTRA_TITLE = "episode_title"

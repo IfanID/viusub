@@ -16,8 +16,10 @@ import dev.ifan.viusub.databinding.ItemTranscriptBinding
  *
  * Urutannya terbalik: cue paling baru di puncak, cue lama di bawah. Cue
  * yang masih live (dari payload pendingCues) selalu berada di baris
- * pertama, dekat dengan video, dan diberi latar cyan tipis plus awalan
- * panah supaya jelas mana yang sedang tampil.
+ * pertama, dekat dengan video, dan diberi latar cyan tipis plus ikon
+ * siaran di kolom nomor supaya jelas mana yang sedang tampil. Cue yang
+ * belum bernomor memakai tanda ? amber; cue ulang memakai ↺ diikuti
+ * nomor lamanya.
  *
  * Cue yang sedang diputar ulang juga tampil di puncak, tetapi memakai
  * nomor, waktu mulai, dan waktu selesai cue lama. Baris lamanya tidak
@@ -26,6 +28,7 @@ import dev.ifan.viusub.databinding.ItemTranscriptBinding
 class TranscriptAdapter(
     private val context: Context,
     private val onSeek: (Double) -> Unit,
+    private val onFillHole: (Double) -> Unit = {},
 ) : RecyclerView.Adapter<TranscriptAdapter.Holder>() {
 
     data class Row(
@@ -37,6 +40,11 @@ class TranscriptAdapter(
         val live: Boolean,
         val replay: Boolean = false,
         val marker: Boolean = false,
+        /** Baris celah rekaman yang bisa diketuk untuk mulai mengisi. */
+        val gap: Boolean = false,
+        val gapStart: Double = 0.0,
+        /** Nomor belum pasti karena ada celah sebelum cue ini. */
+        val provisional: Boolean = false,
     )
 
     private val rows = mutableListOf<Row>()
@@ -65,13 +73,15 @@ class TranscriptAdapter(
         cues: List<VtrPayload.Cue>,
         pending: List<VtrPayload.Cue>,
         position: Double,
+        holes: List<VtrPayload.Hole> = emptyList(),
+        provisionalCount: Int = 0,
     ) {
         // Garis pemisah hanya berguna selama cue lama belum terlewati.
         // Setelah posisi video melewati cue lama terakhir, semua cue di
         // depan adalah rekaman baru, jadi garisnya dihilangkan.
         val boundaryCue = cues.lastOrNull { it.index <= seekMark }
         val boundaryEnd = boundaryCue?.end?.let(PayloadFormatter::parseTime) ?: 0.0
-        val showMarker = seekMark > 0 &&
+        val showSeekMark = seekMark > 0 &&
             !(boundaryEnd > 0 && position >= boundaryEnd)
 
         // Cue ulang memakai nomor cue lama. Jangan tampilkan cue lama itu
@@ -79,6 +89,18 @@ class TranscriptAdapter(
         // aslinya di bawah.
         val replayIndices = pending.filter { it.replay }.mapTo(HashSet()) { it.index }
         val shownReplay = HashSet<Int>()
+
+        val firstHole = holes.firstOrNull()
+        // payload.provisionalCount menghitung seluruh cue, bukan hanya yang
+        // ikut dalam potongan polling 30 cue terakhir.
+        // Cue ulang adalah duplikat cue lama; jangan dihitung dua kali.
+        val localProvisional =
+            cues.count { it.provisional } + pending.count { it.provisional && !it.replay }
+        val provisionalTotal = if (provisionalCount > 0) provisionalCount else localProvisional
+        // Baris celah menggantikan penanda lompatan lama: keduanya
+        // menceritakan hal yang sama, jadi jangan tampil berdampingan.
+        val showGap = firstHole != null && provisionalTotal > 0
+        val showMarker = showSeekMark && !showGap
 
         val next = buildList {
             // Urutan terbalik: yang paling baru di atas, yang lama di bawah.
@@ -96,12 +118,20 @@ class TranscriptAdapter(
                         text = c.text,
                         live = true,
                         replay = c.replay,
+                        provisional = c.provisional,
                     ),
                 )
             }
             var markerPlaced = false
+            var gapPlaced = false
             for (c in cues.asReversed()) {
                 if (c.index in replayIndices) continue
+                // Baris celah diletakkan di batas antara cue yang belum
+                // bernomor dan cue yang sudah bernomor.
+                if (showGap && !gapPlaced && !c.provisional) {
+                    add(gapRow(firstHole, provisionalTotal))
+                    gapPlaced = true
+                }
                 if (showMarker && !markerPlaced && c.index <= seekMark) {
                     add(markerRow(cues))
                     markerPlaced = true
@@ -114,6 +144,7 @@ class TranscriptAdapter(
                         endClock = c.end.takeIf { it.isNotBlank() }?.let(PayloadFormatter::clock),
                         text = c.text,
                         live = false,
+                        provisional = c.provisional,
                     ),
                 )
             }
@@ -121,6 +152,11 @@ class TranscriptAdapter(
             // baru berisi cue setelah lompatan): garis tetap ditampilkan di
             // bawah supaya jumlah cue baru tidak hilang.
             if (showMarker && !markerPlaced) add(markerRow(cues))
+            // Kalau semua cue sesudah celah masih belum bernomor, baris
+            // celah diletakkan di ujung bawah daftar.
+            if (showGap && !gapPlaced) {
+                add(gapRow(firstHole, provisionalTotal))
+            }
         }
         if (next == rows) return
 
@@ -128,8 +164,15 @@ class TranscriptAdapter(
             override fun getOldListSize(): Int = rows.size
             override fun getNewListSize(): Int = next.size
 
-            override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean =
-                rows[oldPos].index == next[newPos].index
+            override fun areItemsTheSame(oldPos: Int, newPos: Int): Boolean {
+                val a = rows[oldPos]
+                val b = next[newPos]
+                if (a.marker || b.marker) return a.marker == b.marker
+                if (a.gap || b.gap) return a.gap == b.gap
+                // Nomor bisa bergeser setelah celah terisi; waktu mulai
+                // adalah identitas yang stabil untuk baris cue.
+                return a.start == b.start
+            }
 
             override fun areContentsTheSame(oldPos: Int, newPos: Int): Boolean =
                 rows[oldPos] == next[newPos]
@@ -138,6 +181,22 @@ class TranscriptAdapter(
         rows.clear()
         rows.addAll(next)
         diff.dispatchUpdatesTo(this)
+    }
+
+    /** Baris celah: ketuk untuk memundurkan video ke awal celah. */
+    private fun gapRow(hole: VtrPayload.Hole, count: Int): Row {
+        val from = PayloadFormatter.clock(hole.from)
+        val to = PayloadFormatter.clock(hole.to)
+        return Row(
+            index = -1,
+            start = "",
+            clock = "",
+            endClock = null,
+            text = context.getString(R.string.transcript_gap_mark, from, to, count),
+            live = false,
+            gap = true,
+            gapStart = PayloadFormatter.parseTime(hole.from),
+        )
     }
 
     /** Baris pemisah: cue di atasnya terekam setelah lompatan terakhir. */
@@ -192,6 +251,20 @@ class TranscriptAdapter(
         fun bind(row: Row) {
             val context = binding.root.context
 
+            if (row.gap) {
+                binding.cueIndex.visibility = View.GONE
+                binding.cueTime.visibility = View.GONE
+                binding.cueText.text = row.text
+                binding.cueText.setTextColor(
+                    ContextCompat.getColor(context, R.color.panel_accent),
+                )
+                binding.root.background = normalBackground
+                binding.root.isClickable = true
+                binding.root.isFocusable = true
+                binding.root.setOnClickListener { onFillHole(row.gapStart) }
+                return
+            }
+
             if (row.marker) {
                 binding.cueIndex.visibility = View.GONE
                 binding.cueTime.visibility = View.GONE
@@ -216,27 +289,63 @@ class TranscriptAdapter(
             val accent = ContextCompat.getColor(context, R.color.panel_accent)
             val meta = ContextCompat.getColor(context, R.color.meta_text)
             val cueNumber = ContextCompat.getColor(context, R.color.cue_number)
+            val provisionalMark =
+                ContextCompat.getColor(context, R.color.provisional_mark)
 
-            binding.cueIndex.text = row.index.toString()
+            // Kolom nomor sekaligus menjadi penanda status. Ikon live
+            // sengaja lebih besar daripada angka supaya cepat terbaca.
+            val isLive = row.live && !row.replay
+            val replayProvisional = row.replay && row.provisional
+            val showMark = row.replay || row.provisional
+            val showNumber = !row.provisional
+
+            binding.cueLiveBadge.visibility = if (isLive) View.VISIBLE else View.GONE
+            binding.cueMark.visibility = if (showMark) View.VISIBLE else View.GONE
+            binding.cueNumber.visibility = if (showNumber) View.VISIBLE else View.GONE
+
+            // Cue ulang yang masih di belakang celah tidak boleh memakai
+            // nomor lamanya. Tampilkan ↺? supaya status ulang dan status
+            // belum bernomor tetap terbaca bersamaan.
+            binding.cueMark.text = when {
+                replayProvisional -> "\u21BA?"
+                row.replay -> "\u21BA"
+                else -> "?"
+            }
+            binding.cueMark.setTextColor(
+                if (row.replay && !row.provisional) cueNumber else provisionalMark,
+            )
+            binding.cueMark.contentDescription = when {
+                replayProvisional ->
+                    context.getString(R.string.transcript_replay_provisional_mark)
+                row.replay -> context.getString(R.string.transcript_replay_mark)
+                row.provisional -> context.getString(R.string.transcript_provisional_mark)
+                else -> null
+            }
+
+            binding.cueNumber.text = row.index.toString()
+            binding.cueNumber.setTextColor(if (isLive) accent else cueNumber)
+
             binding.cueTime.text = if (row.endClock == null) {
                 "${row.clock} \u2192 \u2026"
             } else {
                 "${row.clock} \u2192 ${row.endClock}"
             }
-            binding.cueText.text = when {
-                row.replay -> "\u21BA ${row.text}"
-                row.live -> "\u25B8 ${row.text}"
-                else -> row.text
-            }
+            binding.cueText.text = row.text
 
             binding.cueText.setTextColor(
-                ContextCompat.getColor(
-                    context,
-                    if (row.live) R.color.panel_accent else R.color.panel_text,
-                ),
+                when {
+                    row.replay -> cueNumber
+                    row.live -> accent
+                    else -> ContextCompat.getColor(context, R.color.panel_text)
+                },
             )
-            binding.cueIndex.setTextColor(if (row.live) accent else cueNumber)
-            binding.cueTime.setTextColor(if (row.live) accent else meta)
+            binding.cueTime.setTextColor(
+                when {
+                    row.replay -> cueNumber
+                    row.live -> accent
+                    else -> meta
+                },
+            )
 
             binding.root.background =
                 if (row.live) {
