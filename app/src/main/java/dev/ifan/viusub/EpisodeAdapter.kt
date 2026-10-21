@@ -1,9 +1,11 @@
 package dev.ifan.viusub
 
 import android.graphics.Color
+import android.graphics.Typeface
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -120,11 +122,32 @@ class EpisodeAdapter(
         fun bind(episode: Episode, sorot: String) {
             title.text = if (sorot.isBlank()) episode.title else highlight(episode.title, sorot)
 
-            val parts = mutableListOf<String>()
-            parts += "Episode ${episode.number}"
-            episode.duration().takeIf { it.isNotBlank() }?.let { parts += it }
-            episode.date.takeIf { it.isNotBlank() }?.let { parts += it }
-            meta.text = parts.joinToString("  ·  ")
+            // Nomor episode diberi aksen supaya daftar bisa dipindai
+            // cepat tanpa membaca seluruh baris meta.
+            val metaText = buildString {
+                append("EP ").append(episode.number)
+                episode.duration().takeIf { it.isNotBlank() }?.let {
+                    append("  ·  ").append(it)
+                }
+                episode.date.takeIf { it.isNotBlank() }?.let {
+                    append("  ·  ").append(it)
+                }
+            }
+            val numberEnd = 3 + episode.number.toString().length
+            meta.text = SpannableString(metaText).apply {
+                setSpan(
+                    ForegroundColorSpan(HIGHLIGHT_TEXT),
+                    0,
+                    numberEnd,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+                setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    0,
+                    numberEnd,
+                    Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
 
             ThumbnailLoader.load(thumb, episode.coverUrl)
 

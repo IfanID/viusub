@@ -43,6 +43,7 @@ class HomeActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityHomeBinding
     private lateinit var adapter: EpisodeAdapter
+    private lateinit var stickyYear: StickyYearOverlay
 
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -68,7 +69,7 @@ class HomeActivity : AppCompatActivity() {
         adapter = EpisodeAdapter { episode -> openEpisode(episode) }
         binding.list.layoutManager = LinearLayoutManager(this)
         binding.list.adapter = adapter
-        binding.list.addItemDecoration(StickyYearDecoration(adapter))
+        stickyYear = StickyYearOverlay(binding.list, binding.stickyYear, adapter)
 
         binding.btnRefresh.setOnClickListener { refresh() }
 
@@ -125,6 +126,7 @@ class HomeActivity : AppCompatActivity() {
         } else {
             getString(R.string.home_empty)
         }
+        stickyYear.updateAfterLayout()
     }
 
     /** Menampilkan tombol X hanya saat kotak cari berisi teks. */
@@ -186,12 +188,13 @@ class HomeActivity : AppCompatActivity() {
      */
     private fun updateRange() {
         if (all.isEmpty()) {
-            binding.range.text = ""
+            binding.range.text = getString(R.string.home_range_empty)
             return
         }
         val terlama = all.minOf { it.number }
         val terbaru = all.maxOf { it.number }
-        binding.range.text = getString(R.string.home_range, terlama, terbaru)
+        binding.range.text =
+            getString(R.string.home_range_count, all.size, terlama, terbaru)
     }
 
     /**
@@ -261,11 +264,18 @@ class HomeActivity : AppCompatActivity() {
         updateEmptyState()
     }
 
+    /** Umpan balik visual saat daftar sedang diambil ulang. */
+    private fun setRefreshing(refreshing: Boolean) {
+        binding.btnRefresh.isEnabled = !refreshing
+        binding.btnRefresh.alpha = if (refreshing) 0.35f else 1f
+        binding.refreshProgress.visibility = if (refreshing) View.VISIBLE else View.GONE
+    }
+
     private fun refresh() {
         if (loading) return
         loading = true
         binding.status.text = getString(R.string.home_loading)
-        binding.btnRefresh.isEnabled = false
+        setRefreshing(true)
 
         worker.execute {
             val result = try {
@@ -277,7 +287,7 @@ class HomeActivity : AppCompatActivity() {
 
             main.post {
                 loading = false
-                binding.btnRefresh.isEnabled = true
+                setRefreshing(false)
 
                 if (result.isEmpty()) {
                     // Jangan hapus yang sedang tampil: cache lebih baik

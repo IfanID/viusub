@@ -86,6 +86,12 @@ object RecorderScript {
   // Penahan dilepas begitu overlay benar-benar berganti atau menghilang.
   var staleTexts = null;
 
+  // Pause manual adalah keputusan pengguna dan harus menang atas pemulihan
+  // otomatis. Flag ini membedakan pause pengguna dari pause sementara yang
+  // dilakukan skrip saat seek/recover.
+  var userPaused = false;
+  var suppressPauseUntil = 0;
+
   // Bitmovin kadang berhenti di frame pertama setelah seek/rewind walau
   // statusnya masih "playing". Mendorong posisi 0,5 detik biasanya memancing
   // pemutar mengambil segmen lagi tanpa perlu memuat ulang halaman.
@@ -286,6 +292,21 @@ object RecorderScript {
     if (best) replayCache[norm] = best;
     else if (cached) delete replayCache[norm];
     return best;
+  }
+
+  /**
+   * Saat cue lama diputar ulang, waktu rekamannya bisa terpotong karena
+   * pengguna seek atau pause tepat di tengah cue. Selama pengamatan masih
+   * berada di jendela toleransi findReplay (±1 detik), perluas akhir cue
+   * supaya durasi makin akurat. Jangan pernah melompat lebih jauh dari
+   * jendela itu agar dua kemunculan teks yang terpisah tidak digabung.
+   */
+  function extendReplayEnd(cue, now) {
+    if (!cue || !isFinite(now) || now <= cue.end) return false;
+    if (now - cue.end > 1.0) return false;
+    cue.end = +now.toFixed(3);
+    statCache.at = 0;
+    return true;
   }
 
   // ---- pelacak celah -------------------------------------------------
@@ -525,6 +546,7 @@ object RecorderScript {
       var oldCue = null;
       if (!rec) {
         oldCue = findReplay(c.text, now);
+        extendReplayEnd(oldCue, now);
         live.set(c.el, {
           start: oldCue ? oldCue.start : now,
           text: c.text,
@@ -532,9 +554,12 @@ object RecorderScript {
           replayCue: oldCue
         });
       } else if (rec.text !== c.text) {
-        // Cue ulang tidak pernah masuk daftar rekaman.
-        if (!rec.replayCue) push(rec.start, now, rec.text, rec.top);
+        // Cue ulang tidak pernah masuk daftar rekaman, tetapi akhirnya
+        // tetap diperbarui supaya durasi tidak terpotong di tengah.
+        if (rec.replayCue) extendReplayEnd(rec.replayCue, now);
+        else push(rec.start, now, rec.text, rec.top);
         oldCue = findReplay(c.text, now);
+        extendReplayEnd(oldCue, now);
         live.set(c.el, {
           start: oldCue ? oldCue.start : now,
           text: c.text,
@@ -543,12 +568,14 @@ object RecorderScript {
         });
       } else {
         rec.top = c.top;
+        if (rec.replayCue) extendReplayEnd(rec.replayCue, now);
       }
     }
 
     live.forEach(function (rec, el) {
       if (!present.has(el)) {
-        if (!rec.replayCue) push(rec.start, now, rec.text, rec.top);
+        if (rec.replayCue) extendReplayEnd(rec.replayCue, now);
+        else push(rec.start, now, rec.text, rec.top);
         live.delete(el);
       }
     });
@@ -567,7 +594,9 @@ object RecorderScript {
     var end = lastTime;
     var stale = null;
     live.forEach(function (rec) {
-      if (!rec.replayCue && end > rec.start) {
+      if (rec.replayCue) {
+        extendReplayEnd(rec.replayCue, end);
+      } else if (end > rec.start) {
         push(rec.start, end, rec.text, rec.top);
       }
       if (!stale) stale = new Set();
@@ -654,6 +683,12 @@ object RecorderScript {
     var now = Date.now();
     if (!isFinite(v.currentTime)) return;
 
+    if (userPaused) {
+      seekRecovery.playUntil = 0;
+      seekRecovery.lastPlay = 0;
+      return;
+    }
+
     // Jendela lompatan: pemutar kadang berhenti sendiri tepat setelah seek,
     // atau mengaku tidak paused padahal frame tidak maju. Panggil play()
     // berulang sebentar. Ini hanya aktif setelah lompatan dari transkrip,
@@ -721,6 +756,18 @@ object RecorderScript {
     try { v.currentTime = step; } catch (e) {}
   }
 
+  // Menambahkan satu baris subtitle tanpa menduplikasi teks yang sama.
+  // Viu kadang memecah satu cue menjadi beberapa elemen dengan teks
+  // identik; kalau semuanya ditempel, hasilnya menjadi "Apa? Apa?".
+  function addPart(parts, text, top) {
+    var norm = normText(text);
+    for (var i = 0; i < parts.length; i++) {
+      if (normText(parts[i].t) === norm) return false;
+    }
+    parts.push({ t: text, y: (top || 0) });
+    return true;
+  }
+
   function push(start, end, text, top) {
     if (end - start < 0.15) return;
     var last = cues[cues.length - 1];
@@ -742,10 +789,11 @@ object RecorderScript {
         if (!last._parts) {
           last._parts = [{ t: last.text, y: (last._top || 0) }];
         }
-        last._parts.push({ t: text, y: (top || 0) });
-        last._parts.sort(function (a, b) { return a.y - b.y; });
-        last.text = last._parts.map(function (p) { return p.t; }).join(' ');
-        last._norm = normText(last.text);
+        if (addPart(last._parts, text, top)) {
+          last._parts.sort(function (a, b) { return a.y - b.y; });
+          last.text = last._parts.map(function (p) { return p.t; }).join(' ');
+          last._norm = normText(last.text);
+        }
         last.end = Math.max(last.end, end);
         statCache.at = 0;
         replayCache = {};
@@ -766,6 +814,27 @@ object RecorderScript {
 
   function isDuplicate(text, start, end) {
     var norm = normText(text);
+
+    // Elemen overlay yang sama bisa hilang pada waktu berbeda. Kalau
+    // salinannya masih terlihat lebih lama, jangan buang pengamatan itu:
+    // perluas cue yang sudah ada supaya waktu selesainya tidak terpotong.
+    function absorb(c) {
+      var changed = false;
+      if (end > c.end) {
+        c.end = end;
+        changed = true;
+      }
+      if (start < c.start && c.start - start <= 0.6) {
+        c.start = start;
+        changed = true;
+      }
+      if (changed) {
+        statCache.at = 0;
+        replayCache = {};
+      }
+      return true;
+    }
+
     // Periksa seluruh rekaman, bukan hanya 40 cue terakhir: saat pengguna
     // memundurkan video jauh ke belakang, cue pembanding bisa jauh di atas.
     for (var i = cues.length - 1; i >= 0; i--) {
@@ -773,9 +842,9 @@ object RecorderScript {
       if (!sameSubtitle(c._norm || normText(c.text), norm)) continue;
       // Rentang waktu beririsan berarti ini cue yang sama yang diputar
       // ulang, bukan dialog baru di waktu lain.
-      if (start < c.end + 0.35 && end > c.start - 0.35) return true;
+      if (start < c.end + 0.35 && end > c.start - 0.35) return absorb(c);
       // Toleransi lama untuk cue pendek yang start-nya hampir sama.
-      if (Math.abs(c.start - start) < 0.8) return true;
+      if (Math.abs(c.start - start) < 0.8) return absorb(c);
     }
     return false;
   }
@@ -802,6 +871,7 @@ object RecorderScript {
     var lastCue = list[list.length - 1];
     var out = [];
     var seenReplay = {};
+    var lastNew = null;
     var nextIndex = list.length + 1;
 
     for (var i = 0; i < items.length; i++) {
@@ -812,6 +882,7 @@ object RecorderScript {
         var idx = list.indexOf(p.replayCue) + 1;
         if (idx < 1 || seenReplay[idx]) continue;
         seenReplay[idx] = true;
+        lastNew = null;
         out.push({
           i: idx,
           start: ts(p.replayCue.start, '.'),
@@ -825,16 +896,40 @@ object RecorderScript {
           text: p.replayCue.text
         });
       } else {
+        var normPending = normText(p.text);
+
         // Buang live yang sebenarnya hanya sisa cue terakhir yang baru
-        // selesai (overlay masih tampil sesaat).
-        if (lastCue && p.text === lastCue.text &&
-            Math.abs(p.start - lastCue.start) < 0.4) continue;
-        out.push({
+        // selesai (overlay masih tampil sesaat), termasuk kalau teks live
+        // hanyalah salah satu baris dari cue gabungan.
+        if (lastCue &&
+            sameSubtitle(normText(lastCue.text), normPending) &&
+            Math.abs(p.start - lastCue.start) < 0.8) continue;
+
+        var provisional = !!hole && p.start >= hole.a;
+
+        // Satu cue bisa dipecah menjadi beberapa elemen overlay (mis.
+        // baris utama dan terjemahan). Gabungkan elemen yang mulai hampir
+        // bersamaan menjadi satu baris, dan buang teks yang identik.
+        if (lastNew && Math.abs(p.start - lastNew.start) < 0.6) {
+          if (addPart(lastNew.parts, p.text, p.top)) {
+            lastNew.parts.sort(function (a, b) { return a.y - b.y; });
+            lastNew.row.text = lastNew.parts
+              .map(function (part) { return part.t; }).join(' ');
+          }
+          lastNew.row.provisional =
+            lastNew.row.provisional || provisional;
+          continue;
+        }
+
+        var parts = [{ t: p.text, y: (p.top || 0) }];
+        var row = {
           i: nextIndex++,
           start: ts(p.start, '.'),
-          provisional: !!hole && p.start >= hole.a,
+          provisional: provisional,
           text: p.text
-        });
+        };
+        out.push(row);
+        lastNew = { start: p.start, row: row, parts: parts };
       }
     }
     return out;
@@ -941,6 +1036,8 @@ object RecorderScript {
   function checkRoute() {
     if (location.pathname === lastPath) return false;
     lastPath = location.pathname;
+    userPaused = false;
+    suppressPauseUntil = 0;
     cues.length = 0;
     live.clear();
     statCache.at = 0;
@@ -974,6 +1071,33 @@ object RecorderScript {
     requestAnimationFrame(loop);
   }
 
+  function onVideoPause(ev) {
+    var v = ev && ev.target;
+    if (!v || v.tagName !== 'VIDEO') return;
+    if (v.ended || v.seeking) return;
+    if (Date.now() < suppressPauseUntil) return;
+
+    // Pause manual membatalkan seluruh jendela pemulihan. Tanpa ini,
+    // watchdog akan memanggil play() 700ms kemudian dan video berjalan
+    // lagi padahal pengguna sengaja menghentikannya untuk membaca.
+    userPaused = true;
+    seekRecovery.playUntil = 0;
+    seekRecovery.lastPlay = 0;
+    seekRecovery.at = 0;
+    seekRecovery.tries = 0;
+    seekRecovery.base = -1;
+    seekRecovery.nudgeTarget = -1;
+    seekRecovery.nudgePending = false;
+  }
+
+  function onVideoPlay(ev) {
+    var v = ev && ev.target;
+    if (!v || v.tagName !== 'VIDEO') return;
+    userPaused = false;
+  }
+
+  document.addEventListener('pause', onVideoPause, true);
+  document.addEventListener('play', onVideoPlay, true);
   document.addEventListener('seeking', flushLive, true);
   document.addEventListener('seeked', flushLive, true);
   document.addEventListener('seeking', armSeekRecovery, true);
@@ -1035,6 +1159,15 @@ object RecorderScript {
     return false;
   }
 
+  /**
+   * Pause sementara milik skrip (seek/recover). Event pause yang muncul
+   * sesudah ini tidak boleh dianggap sebagai pause manual pengguna.
+   */
+  function pauseForMaintenance(v) {
+    suppressPauseUntil = Date.now() + 700;
+    try { v.pause(); } catch (e) {}
+  }
+
   // Jalan darurat kalau kontrol Home tidak tersedia atau tidak bereaksi.
   // Video dijeda dulu supaya Bitmovin tidak menahan frame sambil menunggu
   // buffer, lalu play lagi setelah seeked (dengan batas waktu).
@@ -1045,7 +1178,7 @@ object RecorderScript {
     }
     var wasPlaying = !v.paused && !v.ended;
     if (wasPlaying) {
-      try { v.pause(); } catch (e) {}
+      pauseForMaintenance(v);
       var resumed = false;
       var resume = function () {
         if (resumed) return;
@@ -1134,13 +1267,15 @@ object RecorderScript {
    * frame tetap diam, mendorong posisi lebih cepat dari biasanya.
    */
   function beginJumpRecovery(v) {
+    // Lompatan dari transkrip adalah permintaan eksplisit untuk memutar.
+    userPaused = false;
     seekRecovery.playUntil = Date.now() + 8000;
     seekRecovery.lastPlay = 0;
     ensurePlay(v);
   }
 
   window.ViuSubRecorder = {
-    version: '5.10',
+    version: '5.11',
     payload: payload,
     // Memakai getVideo() yang sama dengan perekam, bukan video pertama di
     // DOM: halaman Viu bisa punya lebih dari satu <video> (iklan/pratinjau),
@@ -1148,6 +1283,8 @@ object RecorderScript {
     seek: function (seconds) {
       var v = seekVideo(seconds);
       if (!v) return JSON.stringify({ ok: false, reason: 'no-video' });
+      userPaused = false;
+      suppressPauseUntil = 0;
       // Disimpan supaya pemeriksaan setelah lompatan memeriksa video yang
       // sama, bukan video iklan/pratinjau lain yang muncul belakangan.
       seekRecovery.video = v;
@@ -1272,6 +1409,7 @@ object RecorderScript {
         ok: true,
         position: isFinite(v.currentTime) ? v.currentTime : -1,
         paused: !!v.paused,
+        userPaused: !!userPaused,
         ended: !!v.ended,
         seeking: !!v.seeking,
         readyState: v.readyState,
@@ -1283,6 +1421,7 @@ object RecorderScript {
       var v = seekRecovery.video;
       if (!v || !v.isConnected) v = getVideo();
       if (!v) return JSON.stringify({ ok: false, reason: 'no-video' });
+      userPaused = false;
       ensurePlay(v);
       clickPlayerPlay(v);
       return JSON.stringify({
@@ -1298,6 +1437,9 @@ object RecorderScript {
       var v = seekRecovery.video;
       if (!v || !v.isConnected) v = getVideo();
       if (!v) return JSON.stringify({ ok: false, reason: 'no-video' });
+      if (userPaused) {
+        return JSON.stringify({ ok: false, reason: 'user-paused' });
+      }
       seekRecovery.video = v;
       seekRecovery.playUntil = Date.now() + 6000;
       seekRecovery.lastPlay = 0;
@@ -1319,7 +1461,7 @@ object RecorderScript {
           // Pause/play memaksa decoder memulai transisi baru. Saat seek
           // macet, menulis currentTime lagi juga membatalkan seek lama.
           if (wasPlaying || stuckSeeking) {
-            try { v.pause(); } catch (e) {}
+            pauseForMaintenance(v);
           }
           seekRecovery.base = at;
           seekRecovery.tries = Math.max(seekRecovery.tries, 1);

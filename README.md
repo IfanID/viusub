@@ -36,8 +36,14 @@ diurutkan dari episode terbaru ke yang terlama.
 └─────────────────────────────────┘
 ```
 
+- **Kepala Home** memakai eyebrow cyan `VIUSUB · REKAM SUBTITLE`, judul
+  tebal, dan tombol muat ulang bulat. Saat memuat, ikon meredup dan spinner
+  cyan berputar di tengahnya.
 - **Header tahun menempel** di atas saat digulir, dan terdorong ke atas saat
-  tahun berikutnya mendekat (`StickyYearDecoration`).
+  tahun berikutnya mendekat (`StickyYearOverlay`). Header ini adalah view
+  asli di atas daftar, bukan gambar di kanvas, jadi selalu rata dengan tepi
+  atas. Tahun diberi batang cyan kecil, bukan teks cyan penuh, supaya judul
+  episode tetap menonjol.
 - **Thumbnail** 112×63dp dengan sudut membulat, diambil sendiri oleh
   `ThumbnailLoader` — Coil tidak dipakai karena tidak ada di cache offline.
   Permintaan gambar wajib membawa header `Referer`, tanpa itu Viu menolak.
@@ -55,13 +61,20 @@ diurutkan dari episode terbaru ke yang terlama.
 │            video                │
 │                                 │
 ├─────────────────────────────────┤ ← bar menempel di bawah video
-│ ▸ Cuacanya sangat cerah.        │ ← hingga dua baris, tanpa tombol
+│ ● Running Man - Ep 823     LIVE │ ← baris judul, di luar kartu
+│ ╭─────────────────────────────╮ │
+│ │ ▸ Cuacanya sangat cerah.    │ │ ← kartu preview subtitle
+│ ╰─────────────────────────────╯ │
 ├─────────────────────────────────┤
-│ cue 12 · ▸ 1 live · cakupan 98% │ ← strip statistik
-│ 1:05:33 / 1:32:33 · sisa 27:00  │
-│ ((•))11 1:05:30 → … Luar biasa. │ ← transkrip, live bernomor (ikon siaran)
-│ 10  1:05:20 → 1:05:23  Cerah.   │
-│  9  1:05:12 → 1:05:15  Benar.   │
+│ ╭─ 12 ── 1 ── 0 ── 98% ── 1 ─╮ │ ← kartu lima metrik
+│ │ CUE  LIVE ULANG CAKUP CELAH │ │
+│ │ ▰▰▰▰▰▰▰▰▰▰▰▰▱▱ 98%        │ │ ← progress cakupan
+│ │ 1:05:33 / 1:32:33  sisa 27m │ │
+│ ╰─────────────────────────────╯ │
+│ ((•))11 1:05:30                 │ ← transkrip, waktu dua baris
+│         → …         Luar biasa. │
+│ 10      1:05:20     Cerah.      │
+│         → 1:05:23               │
 │                          (↑)    │ ← tombol live melayang saat digulir
 ├─────────────────────────────────┤
 │ [ Simpan SRT ] [ Simpan JSON ]  │ ← panel kontrol terpisah
@@ -74,9 +87,12 @@ diurutkan dari episode terbaru ke yang terlama.
   diukur dari kotak `<video>` lewat JS (rasio terhadap tinggi viewport,
   jadi aman terhadap density dan zoom) dan diperbarui tiap detik. Dengan
   begitu teks subtitle selalu dekat dengan gambar yang sedang ditonton.
-- Bar menampilkan **hingga dua baris subtitle** dengan teks 15sp dan diberi
-  jarak sebelum strip statistik, jadi preview live lebih lega dibaca; bar
-  tidak lagi memuat tombol.
+- **Judul episode** diletakkan di baris tersendiri di luar kartu preview,
+  tepat di atas kartu itu. Kartu preview di bawahnya hanya memuat **hingga
+  dua baris subtitle** 15sp; tidak ada tombol di dalamnya, jadi teks live
+  lebih lega dibaca. Judul tetap terlihat selama pemutar berjalan, bukan
+  hanya di layar sapaan, dan memakai judul halaman sebagai cadangan kalau
+  layar dibuka tanpa data dari Home.
   Statusnya jujur lewat awalan dan warna: `▸ teks` cyan saat cue benar-benar
   sedang tampil; `✓ teks` redup saat cue itu sudah lewat (bar tidak
   dikosongkan supaya tidak berkedip di setiap jeda); dan "Menunggu
@@ -157,8 +173,11 @@ diurutkan dari episode terbaru ke yang terlama.
   yang sudah pernah terekam, subtitle yang tampil lagi dikenali sebagai
   **putar ulang** lewat kecocokan teks dan rentang waktunya. Baris di puncak
   memakai tanda `↺` diikuti nomor lama serta waktu selesai cue itu (mis.
-  `↺4 · 00:05 → 00:08`), dan cue ulang tidak ditambahkan ke rekaman. Statistik
-  menampilkan jumlahnya sebagai `ulang`, bukan `live`. Kalau pemutar
+  `↺4 · 00:05 → 00:08`), dan cue ulang tidak ditambahkan ke rekaman. Kalau
+  cue yang diputar ulang masih terlihat hingga satu detik setelah waktu
+  selesai lamanya, waktu selesai itu diperpanjang supaya tidak terpotong;
+  batas satu detik mencegah dua dialog berbeda yang kebetulan sama ikut
+  tergabung. Statistik menampilkan jumlahnya sebagai `ulang`, bukan `live`. Kalau pemutar
   Bitmovin tetap berhenti di frame pertama sesudah seek/rewind — status
   masih "playing" tetapi waktu tidak maju — perekam menunggu empat detik,
   lalu mendorong posisi 0,5 detik untuk memancing segmen baru; percobaan
@@ -166,9 +185,10 @@ diurutkan dari episode terbaru ke yang terlama.
   sama lagi. Setiap lompatan membuka jendela pemulihan delapan detik:
   selama jendela itu perekam meminta play berulang (termasuk kalau video
   berhenti sendiri setelah seek) dan memakai jeda nudge yang lebih cepat.
-  Di luar jendela lompatan, perilaku pause pengguna tetap dihormati.
-  Panel hilang saat
-  fullscreen atau saat sisa ruang di atas panel kontrol kurang dari 140dp.
+  Pause manual pengguna selalu menang: begitu video dijeda, pemulihan
+  otomatis berhenti dan tidak memanggil play lagi sampai pengguna menekan
+  Putar, memilih cue, atau meminta lompatan baru. Panel hilang saat
+  fullscreen atau saat sisa ruang di atas panel kontrol kurang dari 120dp.
 - **Notifikasi simpan** muncul tepat di atas panel kontrol, dekat dengan
   tombol yang ditekan dan tidak menutupi video.
 - **Hanya pemain** (`PlayerFocusScript`): saat episode dibuka, seluruh chrome
@@ -325,6 +345,14 @@ storage.
 disaring. Setiap scan menghasilkan daftar kandidat, diurutkan dari yang paling
 atas, lalu digabung jadi cue.
 
+Penyaring juga membuang pengulangan: kalau beberapa elemen overlay memuat
+teks yang sama pada saat yang hampir sama, teks itu hanya dicatat sekali.
+Beberapa baris berbeda yang muncul bersamaan (mis. dialog utama dan
+terjemahannya) digabung menjadi satu cue sesuai urutan vertikal, bukan
+dibiarkan menjadi dua baris terpisah. Penggabungan hanya dilakukan untuk
+baris yang mulai dalam 0,6 detik satu sama lain; dialog yang benar-benar
+berulang jauh nanti tetap menjadi cue baru.
+
 ### Nomor cue dan celah rekaman
 
 Nomor cue dihitung dari urutan waktu, bukan dari jumlah baris yang kebetulan
@@ -352,7 +380,9 @@ terbaca. Karena itu perekam melacak rentang video yang benar-benar ditonton
   setelah celah habis ditonton; mengisi sebagian atau melompat lagi tetap
   membiarkan tanda `?`.
 - Tombol Reset memulai baseline baru di posisi video saat itu: nomor cue
-  mulai lagi dari 1, bukan langsung menjadi belum bernomor.
+  mulai lagi dari 1, bukan langsung menjadi belum bernomor. Kalau sudah ada
+  cue, Reset meminta konfirmasi lebih dulu supaya rekaman panjang tidak
+  terhapus karena satu ketukan.
 - Garis lama "N cue baru sejak lompat ke …" tetap dipakai untuk lompatan yang
   tidak membuat celah; saat ada celah, baris celah yang tampil.
 
@@ -460,7 +490,7 @@ app/src/main/
 │   ├── PlayerFocusScript.kt    skrip "hanya pemain", sebagai Kotlin constant
 │   ├── RecorderScript.kt       kode JS perekam, sebagai Kotlin constant
 │   ├── SrtWriter.kt            penyusun file .srt
-│   ├── StickyYearDecoration.kt header tahun lengket
+│   ├── StickyYearOverlay.kt    header tahun lengket
 │   ├── ThumbnailLoader.kt      pemuat thumbnail + LruCache
 │   ├── ViuApi.kt               pengambilan daftar dari API Viu
 │   └── VtrPayload.kt           model data payload

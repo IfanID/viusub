@@ -235,6 +235,13 @@ class PlaybackJumpController(
                 return@evaluateJavascript
             }
 
+            // Pause manual membatalkan seluruh verifikasi. Jangan pernah
+            // mengirim JUMP_PLAY lagi setelah pengguna sengaja berhenti.
+            if (state.optBoolean("userPaused", false)) {
+                cancelInternal(notify = true)
+                return@evaluateJavascript
+            }
+
             val position = state.optDouble("position", -1.0)
             val paused = state.optBoolean("paused", true)
             val seeking = state.optBoolean("seeking", true)

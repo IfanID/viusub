@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tombol sekunder: permukaan gelap dengan garis tipis. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/accent_ripple">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface_raised" />
+            <corners android:radius="10dp" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/surface_border" />
+        </shape>
+    </item>
+</ripple>

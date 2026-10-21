@@ -2,7 +2,6 @@ package dev.ifan.viusub
 
 import android.content.Context
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.Drawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -245,20 +244,25 @@ class TranscriptAdapter(
         private val binding: ItemTranscriptBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
 
-        /** Ripple bawaan baris, dipakai lagi saat cue tidak live. */
-        private val normalBackground: Drawable? = binding.root.background
-
         fun bind(row: Row) {
             val context = binding.root.context
+
+            // Holder dipakai ulang. Bersihkan dekorasi teks milik baris
+            // sebelumnya supaya pill penanda tidak bocor ke cue biasa.
+            binding.cueText.background = null
+            binding.cueText.setPadding(0, 0, 0, 0)
 
             if (row.gap) {
                 binding.cueIndex.visibility = View.GONE
                 binding.cueTime.visibility = View.GONE
                 binding.cueText.text = row.text
                 binding.cueText.setTextColor(
-                    ContextCompat.getColor(context, R.color.panel_accent),
+                    ContextCompat.getColor(context, R.color.provisional_mark),
                 )
-                binding.root.background = normalBackground
+                binding.root.background = ContextCompat.getDrawable(
+                    context,
+                    R.drawable.bg_gap_row,
+                )
                 binding.root.isClickable = true
                 binding.root.isFocusable = true
                 binding.root.setOnClickListener { onFillHole(row.gapStart) }
@@ -272,6 +276,13 @@ class TranscriptAdapter(
                 binding.cueText.setTextColor(
                     ContextCompat.getColor(context, R.color.meta_text),
                 )
+                binding.cueText.background = ContextCompat.getDrawable(
+                    context,
+                    R.drawable.bg_marker_row,
+                )
+                val padH = (context.resources.displayMetrics.density * 10).toInt()
+                val padV = (context.resources.displayMetrics.density * 5).toInt()
+                binding.cueText.setPadding(padH, padV, padH, padV)
                 binding.root.background = ColorDrawable(
                     ContextCompat.getColor(context, R.color.surface),
                 )
@@ -325,10 +336,11 @@ class TranscriptAdapter(
             binding.cueNumber.text = row.index.toString()
             binding.cueNumber.setTextColor(if (isLive) accent else cueNumber)
 
+            // Dua baris supaya kolom waktu tidak memakan lebar teks cue.
             binding.cueTime.text = if (row.endClock == null) {
-                "${row.clock} \u2192 \u2026"
+                "${row.clock}\n\u2192 \u2026"
             } else {
-                "${row.clock} \u2192 ${row.endClock}"
+                "${row.clock}\n\u2192 ${row.endClock}"
             }
             binding.cueText.text = row.text
 
@@ -347,12 +359,11 @@ class TranscriptAdapter(
                 },
             )
 
-            binding.root.background =
-                if (row.live) {
-                    ColorDrawable(ContextCompat.getColor(context, R.color.live_row))
-                } else {
-                    normalBackground
-                }
+            binding.root.background = when {
+                row.replay -> ContextCompat.getDrawable(context, R.drawable.bg_replay_row)
+                row.live -> ContextCompat.getDrawable(context, R.drawable.bg_live_row)
+                else -> null
+            }
 
             binding.root.setOnClickListener {
                 onSeek(PayloadFormatter.parseTime(row.start))

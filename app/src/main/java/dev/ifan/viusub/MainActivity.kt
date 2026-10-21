@@ -2,6 +2,8 @@ package dev.ifan.viusub
 
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
@@ -19,6 +21,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -28,6 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import dev.ifan.viusub.databinding.ActivityMainBinding
@@ -38,9 +43,10 @@ import org.json.JSONObject
  * panel transkrip mengisi sisa area hitam, dan panel kontrol tetap di
  * dasar layar.
  *
- * Bar live hanya menampilkan satu baris teks subtitle yang sedang tampil.
- * Tombol-tombol (folder, reset, simpan JSON, simpan SRT, status) berada
- * di panel kontrol terpisah, bukan di dalam bar.
+ * Baris judul episode berada di luar kartu preview, tepat di atasnya;
+ * kartu preview sendiri hanya memuat teks subtitle yang sedang tampil.
+ * Tombol-tombol (folder, reset, simpan JSON, simpan SRT, status) berada di
+ * panel kontrol terpisah, bukan di dalam bar.
  *
  * Tidak ada split 30% lagi. WebView memakai seluruh layar.
  */
@@ -83,6 +89,12 @@ class MainActivity : AppCompatActivity() {
     /** Judul episode dari Intent (dikirim Home). Null kalau dibuka langsung. */
     private val episodeTitle: String? by lazy { intent?.getStringExtra(EXTRA_TITLE) }
     private val episodeCover: String? by lazy { intent?.getStringExtra(EXTRA_COVER) }
+
+    /**
+     * Judul yang sedang terpasang di bar live. Kosong berarti judul belum
+     * diketahui dan belum ditampilkan.
+     */
+    private var shownEpisodeTitle: String? = null
     private var polling = false
 
     /** Posisi atas bar live (piksel). -1 selama video belum terukur. */
@@ -492,6 +504,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupLiveBar() {
+        showEpisodeTitle(episodeTitle)
         binding.btnInfo.setOnClickListener { showStatusDialog() }
 
         binding.btnPickFolder.setOnClickListener {
@@ -503,20 +516,54 @@ class MainActivity : AppCompatActivity() {
             applyKeepScreenOn(checked, save = true)
         }
 
-        binding.btnReset.setOnClickListener {
-            binding.webView.evaluateJavascript(RecorderScript.RESET, null)
-            lastRenderedLine = null
-            lastPayload = null
-            lastCueNumber = -1
-            invalidateFullTranscript()
-            transcriptAdapter.clear()
-            binding.transcriptEmpty.visibility = View.VISIBLE
-            binding.cueBadge.visibility = View.GONE
-            say(getString(R.string.panel_idle))
-        }
+        binding.btnReset.setOnClickListener { confirmReset() }
 
         binding.btnSaveJson.setOnClickListener { exportJson() }
         binding.btnSaveSrt.setOnClickListener { exportSrt() }
+    }
+
+    /**
+     * Menaruh judul episode di baris atas, di luar kartu preview. Kalau
+     * Home tidak mengirim judul (mis. layar dibuka langsung dengan URL),
+     * nama aplikasi dipakai sampai judul halaman yang sudah dibersihkan
+     * tersedia.
+     */
+    private fun showEpisodeTitle(raw: String?) {
+        val title = raw?.trim().takeUnless { it.isNullOrBlank() }
+            ?: getString(R.string.app_name)
+        if (title == shownEpisodeTitle) return
+        shownEpisodeTitle = title
+        binding.episodeTitleText.text = title
+    }
+
+    /**
+     * Reset menghapus seluruh rekaman. Kalau sudah ada cue, minta
+     * konfirmasi lebih dulu supaya satu ketukan tidak menghabiskan hasil
+     * rekaman sesi panjang. Saat masih kosong, reset langsung dijalankan.
+     */
+    private fun confirmReset() {
+        if ((lastPayload?.cueCount ?: 0) == 0) {
+            performReset()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.reset_confirm_title)
+            .setMessage(R.string.reset_confirm_message)
+            .setPositiveButton(R.string.reset_confirm_positive) { _, _ -> performReset() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun performReset() {
+        binding.webView.evaluateJavascript(RecorderScript.RESET, null)
+        lastRenderedLine = null
+        lastPayload = null
+        lastCueNumber = -1
+        invalidateFullTranscript()
+        transcriptAdapter.clear()
+        binding.transcriptEmpty.visibility = View.VISIBLE
+        binding.cueBadge.visibility = View.GONE
+        say(getString(R.string.panel_idle))
     }
 
     /**
@@ -526,6 +573,14 @@ class MainActivity : AppCompatActivity() {
     private fun setupTranscript() {
         binding.transcriptList.layoutManager = LinearLayoutManager(this)
         binding.transcriptList.adapter = transcriptAdapter
+
+        // Garis rambut membantu mata memisahkan cue tanpa menambah tinggi
+        // baris. Dibuat dari drawable 1dp supaya tebalnya sama di semua
+        // kepadatan layar.
+        val divider = DividerItemDecoration(this, DividerItemDecoration.VERTICAL)
+        ContextCompat.getDrawable(this, R.drawable.divider_transcript)
+            ?.let(divider::setDrawable)
+        binding.transcriptList.addItemDecoration(divider)
 
         binding.btnJumpLive.setOnClickListener {
             followLive = true
@@ -627,7 +682,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Menempelkan bar live tepat di bawah gambar, dengan jarak tipis. */
+    /** Menempelkan kepala pemutar tepat di bawah gambar, dengan jarak tipis. */
     private fun placeLiveBar(ratio: Double) {
         if (inFullscreen) return
         val height = binding.webView.height
@@ -666,7 +721,7 @@ class MainActivity : AppCompatActivity() {
         val room = binding.controlPanel.top - binding.liveBar.bottom
         val enough = barTopPx > 0 &&
             binding.controlPanel.height > 0 &&
-            room >= (140 * resources.displayMetrics.density).toInt()
+            room >= (120 * resources.displayMetrics.density).toInt()
         val show = splashDismissed && !inFullscreen && enough
         val desired = if (show) View.VISIBLE else View.GONE
         if (binding.recorderPanel.visibility == desired) return
@@ -680,8 +735,61 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Lima metrik sesi di kartu atas panel rekaman. Nilai yang nol
+     * diredupkan supaya mata langsung tertuju pada yang sedang aktif.
+     */
+    private fun updateStats(payload: VtrPayload) {
+        val liveCount = payload.pendingCues.count { !it.replay }
+        val replayCount = payload.pendingCues.count { it.replay }
+        val coverage = payload.coveragePercent?.toFloatOrNull()?.coerceIn(0f, 100f) ?: 0f
+        val tertiary = ContextCompat.getColor(this, R.color.text_tertiary)
+
+        binding.statCueValue.text = payload.cueCount.toString()
+        binding.statLiveValue.text = liveCount.toString()
+        binding.statReplayValue.text = replayCount.toString()
+        binding.statCoverageValue.text =
+            "${payload.coveragePercent?.takeIf { it.isNotBlank() } ?: "0.0"}%"
+        binding.statGapValue.text = payload.gapCount.toString()
+
+        binding.statLiveValue.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (liveCount > 0) R.color.panel_accent else R.color.text_tertiary,
+            ),
+        )
+        binding.statReplayValue.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (replayCount > 0) R.color.cue_number else R.color.text_tertiary,
+            ),
+        )
+        binding.statGapValue.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (payload.gapCount > 0) R.color.provisional_mark else R.color.text_tertiary,
+            ),
+        )
+        binding.statCueValue.setTextColor(
+            if (payload.cueCount > 0) {
+                ContextCompat.getColor(this, R.color.panel_text)
+            } else {
+                tertiary
+            },
+        )
+
+        binding.coverageBar.progress = (coverage * 10).toInt()
+        binding.statPosition.text = buildString {
+            append(payload.position ?: "--:--")
+            append("  /  ")
+            append(payload.total ?: "--:--")
+        }
+        binding.statRemaining.text =
+            getString(R.string.stat_remaining, payload.remaining ?: "--:--")
+    }
+
     private fun updateTranscript(payload: VtrPayload) {
-        binding.transcriptStats.text = PayloadFormatter.transcriptStats(payload)
+        updateStats(payload)
 
         // Celah yang muncul atau selesai mengubah nomor cue lama. Polling
         // hanya membawa 30 cue terakhir, jadi ambil snapshot penuh lagi.
@@ -947,10 +1055,20 @@ class MainActivity : AppCompatActivity() {
         } else {
             PayloadFormatter.status(payload)
         }
+        val view = layoutInflater.inflate(R.layout.dialog_status, null)
+        view.findViewById<TextView>(R.id.statusText).text = message
+
         AlertDialog.Builder(this)
             .setTitle(R.string.status_title)
-            .setMessage(message)
-            .setPositiveButton(android.R.string.ok, null)
+            .setView(view)
+            .setNeutralButton(R.string.status_copy) { _, _ ->
+                val clipboard = getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(
+                    ClipData.newPlainText(getString(R.string.status_title), message),
+                )
+                Toast.makeText(this, R.string.status_copied, Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton(R.string.status_close, null)
             .show()
     }
 
@@ -1203,6 +1321,12 @@ class MainActivity : AppCompatActivity() {
     private fun render(payload: VtrPayload) {
         lastPayload = payload
 
+        // Judul dari Home biasanya sudah ada. Kalau layar dibuka langsung,
+        // pakai judul halaman Viu yang sudah dibersihkan dari nama platform.
+        if (episodeTitle.isNullOrBlank()) {
+            showEpisodeTitle(FileNames.sanitize(payload.title))
+        }
+
         updateCueBadge(payload.cueCount)
 
         val line = PayloadFormatter.liveLine(payload)
@@ -1213,16 +1337,14 @@ class MainActivity : AppCompatActivity() {
         // Warna jujur soal status: cue live disorot aksen; teks terakhir
         // yang sudah selesai (✓) dan keadaan menunggu ditampilkan redup,
         // supaya mata tahu mana yang benar-benar sedang tampil di video.
+        val hasLive = PayloadFormatter.hasLiveCue(payload)
         binding.liveText.setTextColor(
             ContextCompat.getColor(
                 this,
-                if (PayloadFormatter.hasLiveCue(payload)) {
-                    R.color.panel_accent
-                } else {
-                    R.color.meta_text
-                },
+                if (hasLive) R.color.panel_accent else R.color.meta_text,
             ),
         )
+        binding.livePill.alpha = if (hasLive) 1f else 0.45f
 
         // Transkrip cukup diperbarui dua kali per detik; payload tetap
         // dibaca sepuluh kali per detik untuk bar live.

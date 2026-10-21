@@ -14,7 +14,22 @@
     <color name="jump_stroke">#6600E5FF</color>
     <color name="thumb_placeholder">#1E1E1E</color>
     <color name="divider">#1F1F1F</color>
+    <color name="divider_soft">#14FFFFFF</color>
     <color name="surface">#0B0B0B</color>
+    <color name="surface_low">#060708</color>
+    <color name="surface_raised">#121418</color>
+    <color name="surface_high">#181D24</color>
+    <color name="surface_border">#26FFFFFF</color>
+    <color name="text_secondary">#A7B0BA</color>
+    <color name="text_tertiary">#6F7883</color>
+    <color name="accent_soft">#1F00E5FF</color>
+    <color name="accent_line">#3300E5FF</color>
+    <color name="accent_ripple">#3300E5FF</color>
+    <color name="warning_soft">#14FFB74D</color>
+    <color name="danger_stroke">#66FFB74D</color>
+    <color name="scrim">#CC000000</color>
+    <color name="live_bar_stroke">#4D00E5FF</color>
+    <color name="button_primary_text">#001014</color>
     <color name="ic_launcher_background">#000000</color>
     <color name="error_text">#FF6B6B</color>
     <!-- Latar baris cue yang masih live di transkrip. -->

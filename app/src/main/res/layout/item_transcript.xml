@@ -1,25 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Satu baris transkrip: nomor cue, waktu mulai, dan teks subtitle.
-  Latar baris live diwarnai oleh adapter, bukan di sini.
+  Satu baris transkrip: nomor cue, waktu, dan teks subtitle.
+  Ripple dipasang sebagai foreground supaya baris live yang punya latar
+  warna sendiri tetap memberi umpan balik saat diketuk.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
+    android:background="@android:color/transparent"
+    android:baselineAligned="false"
     android:clickable="true"
     android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
     android:gravity="center_vertical"
-    android:minHeight="30dp"
+    android:minHeight="44dp"
     android:orientation="horizontal"
-    android:paddingStart="12dp"
-    android:paddingTop="5dp"
+    android:paddingStart="14dp"
+    android:paddingTop="7dp"
     android:paddingEnd="12dp"
-    android:paddingBottom="5dp">
+    android:paddingBottom="7dp">
 
     <LinearLayout
         android:id="@+id/cueIndex"
-        android:layout_width="54dp"
+        android:layout_width="52dp"
         android:layout_height="wrap_content"
         android:gravity="center_vertical|end"
         android:orientation="horizontal">
@@ -50,7 +53,7 @@
             android:gravity="center"
             android:includeFontPadding="false"
             android:maxLines="1"
-            android:textSize="15sp"
+            android:textSize="16sp"
             android:visibility="gone" />
 
         <TextView
@@ -62,27 +65,30 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/cue_number"
-            android:textSize="10sp" />
+            android:textSize="11sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/cueTime"
-        android:layout_width="112dp"
+        android:layout_width="92dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:fontFamily="monospace"
-        android:maxLines="1"
+        android:includeFontPadding="false"
+        android:lineSpacingExtra="1dp"
+        android:maxLines="2"
         android:textColor="@color/meta_text"
-        android:textSize="10sp" />
+        android:textSize="9sp" />
 
     <TextView
         android:id="@+id/cueText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="10dp"
         android:layout_weight="1"
         android:ellipsize="end"
+        android:lineSpacingExtra="1dp"
         android:maxLines="3"
         android:textColor="@color/panel_text"
-        android:textSize="12sp" />
+        android:textSize="13sp" />
 </LinearLayout>

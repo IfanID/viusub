@@ -69,30 +69,6 @@ object PayloadFormatter {
     }
 
     /**
-     * Dua baris statistik di atas transkrip:
-     *   cue 12 · ▸ 1 live · cakupan 98,2% · lubang 2
-     *   1:05:33 / 1:32:33 · sisa 27:00
-     */
-    fun transcriptStats(p: VtrPayload): String = buildString {
-        append("cue ").append(p.cueCount)
-        val liveCount = p.pendingCues.count { !it.replay }
-        val replayCount = p.pendingCues.count { it.replay }
-        if (liveCount > 0) {
-            append("  ").append(RUNNING).append(' ').append(liveCount).append(" live")
-        }
-        if (replayCount > 0) {
-            append("  ").append(REPLAY).append(' ').append(replayCount).append(" ulang")
-        }
-        append("  ·  cakupan ").append(p.coveragePercent ?: "-").append('%')
-        if (p.gapCount > 0) append("  ·  lubang ").append(p.gapCount)
-        append('\n')
-        append(clock(p.position)).append(" / ").append(clock(p.total))
-        if (!p.remaining.isNullOrBlank()) {
-            append("  ·  sisa ").append(clock(p.remaining))
-        }
-    }
-
-    /**
      * Waktu ringkas untuk daftar transkrip: mm:ss di bawah satu jam,
      * h:mm:ss di atasnya. Milidetik dibuang karena hanya menambah lebar
      * tanpa berguna saat dibaca sekilas.

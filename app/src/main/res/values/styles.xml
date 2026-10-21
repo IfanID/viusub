@@ -1,16 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="ThinButton">
+    <!--
+      Tombol panel kontrol. Tinggi 44dp memberi sasaran sentuh yang lebih
+      nyaman tanpa memakan terlalu banyak ruang transkrip.
+    -->
+    <style name="ThinButton" parent="Widget.AppCompat.Button">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
         <item name="android:textSize">12sp</item>
-        <item name="android:minHeight">38dp</item>
+        <item name="android:minHeight">44dp</item>
         <item name="android:minWidth">0dp</item>
-        <item name="android:paddingTop">6dp</item>
-        <item name="android:paddingBottom">6dp</item>
-        <item name="android:paddingLeft">2dp</item>
-        <item name="android:paddingRight">2dp</item>
+        <item name="android:paddingLeft">8dp</item>
+        <item name="android:paddingRight">8dp</item>
         <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/panel_text</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/bg_button_secondary</item>
+        <item name="android:backgroundTint">@null</item>
+        <item name="backgroundTint">@null</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="PrimaryButton" parent="ThinButton">
+        <item name="android:background">@drawable/bg_button_primary</item>
+        <item name="android:textColor">@color/button_primary_text</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- Aksi yang menghapus rekaman diberi warna peringatan, bukan aksen. -->
+    <style name="DangerButton" parent="ThinButton">
+        <item name="android:background">@drawable/bg_button_danger</item>
+        <item name="android:textColor">@color/provisional_mark</item>
     </style>
 </resources>

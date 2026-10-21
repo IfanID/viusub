@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Latar harus pekat: header ini dipakai juga sebagai header lengket yang
-     digambar di atas baris lain saat daftar digulir. -->
+<!-- Latar harus pekat supaya header tahun tidak tembus pandang saat
+     daftar digulir di bawahnya. -->
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/yearLabel"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/panel_bottom"
+    android:background="@drawable/bg_year_header"
+    android:drawableStart="@drawable/bg_year_mark"
+    android:drawablePadding="9dp"
     android:paddingStart="16dp"
-    android:paddingTop="14dp"
+    android:paddingTop="15dp"
     android:paddingEnd="16dp"
-    android:paddingBottom="6dp"
-    android:textSize="17sp"
-    android:textStyle="bold"
-    android:letterSpacing="0.02"
-    android:textColor="@color/panel_accent" />
+    android:paddingBottom="7dp"
+    android:textColor="@color/panel_text"
+    android:textSize="16sp"
+    android:textStyle="bold" />

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Baris live: tint cyan tipis dengan garis aksen di sisi kiri. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/live_row" />
+        </shape>
+    </item>
+    <item
+        android:width="2dp"
+        android:gravity="start">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/panel_accent" />
+        </shape>
+    </item>
+</layer-list>

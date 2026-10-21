@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   WebView penuh, tanpa split. Bar live menempel tepat di bawah video dan
-  menjadi kepala panel rekaman: strip statistik dan transkrip cue mengisi
+  menjadi kepala panel rekaman: kartu statistik dan transkrip cue mengisi
   sisa area hitam sampai dasar layar.
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
@@ -24,10 +24,10 @@
         android:id="@+id/videoContainer"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintTop_toTopOf="parent">
 
         <WebView
             android:id="@+id/webView"
@@ -36,8 +36,8 @@
     </FrameLayout>
 
     <!--
-      Panel rekaman: strip statistik + transkrip cue yang sudah lewat.
-      Tepat di bawah bar live, mengisi sisa area hitam sampai dasar layar.
+      Panel rekaman: kartu statistik + transkrip cue. Tepat di bawah bar
+      live, mengisi sisa area hitam sampai dasar layar.
 
       Ditulis SEBELUM layar sapaan supaya sapuan itu tetap menutupinya
       selama pemain belum siap. Sifat clickable menahan sentuhan di area
@@ -47,7 +47,7 @@
         android:id="@+id/recorderPanel"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="8dp"
         android:background="@color/panel_bottom"
         android:clickable="true"
         android:focusable="false"
@@ -58,34 +58,256 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/liveBar">
 
-        <TextView
-            android:id="@+id/transcriptStats"
+        <!-- Ringkasan sesi: lima metrik, progress cakupan, lalu posisi. -->
+        <LinearLayout
+            android:id="@+id/statsCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:maxLines="2"
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/bg_stats_panel"
+            android:orientation="vertical"
             android:paddingStart="12dp"
             android:paddingTop="8dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="6dp"
-            android:textColor="@color/meta_text"
-            android:textSize="10sp"
-            android:text="@string/transcript_waiting" />
+            android:paddingBottom="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statCueValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:text="0"
+                        android:textColor="@color/panel_text"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.12"
+                        android:text="@string/stat_cue"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="26dp"
+                    android:background="@color/divider_soft" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statLiveValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:text="0"
+                        android:textColor="@color/panel_accent"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.12"
+                        android:text="@string/stat_live"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="26dp"
+                    android:background="@color/divider_soft" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statReplayValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:text="0"
+                        android:textColor="@color/cue_number"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.12"
+                        android:text="@string/stat_replay"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="26dp"
+                    android:background="@color/divider_soft" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statCoverageValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:text="0.0%"
+                        android:textColor="@color/panel_accent"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.12"
+                        android:text="@string/stat_coverage"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="9sp" />
+                </LinearLayout>
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="26dp"
+                    android:background="@color/divider_soft" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/statGapValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:text="0"
+                        android:textColor="@color/provisional_mark"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:letterSpacing="0.12"
+                        android:text="@string/stat_gap"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="9sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/coverageBar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:layout_marginTop="8dp"
+                android:indeterminate="false"
+                android:max="1000"
+                android:maxHeight="2dp"
+                android:minHeight="2dp"
+                android:progress="0"
+                android:progressDrawable="@drawable/progress_coverage" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/statPosition"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:fontFamily="monospace"
+                    android:maxLines="1"
+                    android:textColor="@color/meta_text"
+                    android:textSize="10sp" />
+
+                <TextView
+                    android:id="@+id/statRemaining"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:maxLines="1"
+                    android:textColor="@color/text_tertiary"
+                    android:textSize="10sp" />
+            </LinearLayout>
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/jumpStatusBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="10dp"
             android:layout_marginBottom="4dp"
             android:background="@drawable/bg_jump_status"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="10dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="6dp"
-            android:paddingBottom="6dp"
+            android:paddingStart="13dp"
+            android:paddingTop="7dp"
+            android:paddingEnd="7dp"
+            android:paddingBottom="7dp"
             android:visibility="gone">
 
             <ProgressBar
@@ -93,7 +315,7 @@
                 style="?android:attr/progressBarStyleSmall"
                 android:layout_width="16dp"
                 android:layout_height="16dp"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="9dp"
                 android:indeterminateTint="@color/panel_accent"
                 android:visibility="gone" />
 
@@ -102,20 +324,22 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:fontFamily="monospace"
+                android:fontFamily="sans-serif-medium"
+                android:lineSpacingExtra="2dp"
                 android:maxLines="2"
                 android:textColor="@color/panel_text"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/jumpStatusAction"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="4dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
+                android:minHeight="36dp"
                 android:minWidth="48dp"
                 android:paddingStart="8dp"
                 android:paddingTop="4dp"
@@ -134,6 +358,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
+                android:minHeight="36dp"
                 android:minWidth="48dp"
                 android:paddingStart="6dp"
                 android:paddingTop="4dp"
@@ -170,12 +395,15 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
+                    android:drawablePadding="12dp"
+                    android:drawableTop="@drawable/ic_subtitles"
                     android:gravity="center"
-                    android:paddingStart="24dp"
-                    android:paddingEnd="24dp"
+                    android:lineSpacingExtra="4dp"
+                    android:paddingStart="32dp"
+                    android:paddingEnd="32dp"
+                    android:text="@string/transcript_waiting"
                     android:textColor="@color/meta_text"
-                    android:textSize="12sp"
-                    android:text="@string/transcript_waiting" />
+                    android:textSize="13sp" />
 
                 <!--
                   Tombol melayang untuk kembali ke cue live. Hanya muncul
@@ -193,7 +421,7 @@
                     android:background="@drawable/bg_jump_live"
                     android:clickable="true"
                     android:contentDescription="@string/transcript_jump_live_desc"
-                    android:elevation="6dp"
+                    android:elevation="8dp"
                     android:focusable="true"
                     android:fontFamily="monospace"
                     android:foreground="?attr/selectableItemBackgroundBorderless"
@@ -224,7 +452,7 @@
         android:id="@+id/splashOverlay"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="#000000"
+        android:background="@drawable/bg_splash"
         android:clickable="true"
         android:focusable="true"
         android:visibility="gone"
@@ -243,34 +471,54 @@
             android:paddingStart="28dp"
             android:paddingEnd="28dp">
 
+            <TextView
+                android:id="@+id/splashBrand"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="20dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.35"
+                android:text="@string/splash_brand"
+                android:textColor="@color/panel_accent"
+                android:textSize="11sp" />
+
             <ImageView
                 android:id="@+id/splashCover"
-                android:layout_width="220dp"
-                android:layout_height="124dp"
+                android:layout_width="240dp"
+                android:layout_height="135dp"
                 android:background="@drawable/bg_thumb"
                 android:clipToOutline="true"
                 android:contentDescription="@null"
+                android:elevation="10dp"
+                android:outlineProvider="background"
                 android:scaleType="centerCrop" />
 
             <TextView
                 android:id="@+id/splashTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
+                android:layout_marginTop="20dp"
                 android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
                 android:gravity="center"
+                android:lineSpacingExtra="2dp"
                 android:maxLines="2"
-                android:textColor="#FFFFFFFF"
-                android:textSize="16sp"
-                android:textStyle="bold" />
+                android:textColor="@color/panel_text"
+                android:textSize="18sp" />
 
             <TextView
                 android:id="@+id/splashStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="7dp"
-                android:textColor="#99FFFFFF"
-                android:textSize="13sp" />
+                android:layout_marginTop="8dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <View
+                android:layout_width="40dp"
+                android:layout_height="2dp"
+                android:layout_marginTop="20dp"
+                android:background="@color/panel_accent" />
         </LinearLayout>
     </FrameLayout>
 
@@ -291,17 +539,19 @@
         android:layout_marginTop="8dp"
         android:background="@drawable/bg_cue_badge"
         android:clickable="false"
+        android:elevation="4dp"
         android:focusable="false"
         android:fontFamily="monospace"
         android:gravity="center"
-        android:minWidth="26dp"
-        android:minHeight="26dp"
-        android:paddingStart="7dp"
-        android:paddingEnd="7dp"
-        android:paddingTop="3dp"
-        android:paddingBottom="3dp"
+        android:minHeight="30dp"
+        android:minWidth="30dp"
+        android:outlineProvider="background"
+        android:paddingStart="8dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="4dp"
         android:textColor="@color/panel_accent"
-        android:textSize="12sp"
+        android:textSize="13sp"
         android:textStyle="bold"
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
@@ -309,8 +559,14 @@
 
     <!--
       Bar live. Posisinya diatur MainActivity: tepat di bawah <video>.
-      Isinya hanya satu baris subtitle — tombol-tombol pindah ke panel
-      kontrol terpisah di dasar layar.
+      Baris atas menampilkan status live, judul episode, dan pill LIVE;
+      baris bawah menampilkan subtitle yang sedang tampil.
+    -->
+    <!--
+      Kepala pemutar: judul berada di luar kartu preview, tepat di atas
+      kartu subtitle. Baris judul memakai latar transparan supaya tidak
+      menyatu dengan kartu preview di bawahnya, tetapi teksnya tetap
+      sejajar dengan isi kartu.
     -->
     <LinearLayout
         android:id="@+id/liveBar"
@@ -319,28 +575,84 @@
         android:layout_marginStart="6dp"
         android:layout_marginEnd="6dp"
         android:layout_marginBottom="6dp"
-        android:background="@drawable/bg_live_bar"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="14dp"
-        android:paddingTop="10dp"
-        android:paddingEnd="14dp"
-        android:paddingBottom="10dp"
+        android:orientation="vertical"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <TextView
-            android:id="@+id/liveText"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:fontFamily="monospace"
-            android:lineSpacingExtra="2dp"
-            android:maxLines="2"
-            android:textColor="@color/panel_accent"
-            android:textSize="15sp"
-            android:text="@string/panel_idle" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="2dp">
+
+            <View
+                android:layout_width="6dp"
+                android:layout_height="6dp"
+                android:layout_marginEnd="7dp"
+                android:background="@drawable/bg_live_dot" />
+
+            <TextView
+                android:id="@+id/episodeTitleText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:letterSpacing="0.01"
+                android:maxLines="1"
+                android:text="@string/app_name"
+                android:textColor="@color/panel_text"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/livePill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_live_pill"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.12"
+                android:paddingStart="7dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="7dp"
+                android:paddingBottom="2dp"
+                android:text="@string/live_pill"
+                android:textColor="@color/panel_accent"
+                android:textSize="9sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/livePreviewCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:background="@drawable/bg_live_bar"
+            android:elevation="6dp"
+            android:outlineProvider="background"
+            android:orientation="vertical"
+            android:paddingStart="14dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="10dp">
+
+            <TextView
+                android:id="@+id/liveText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="3dp"
+                android:maxLines="2"
+                android:text="@string/panel_idle"
+                android:textColor="@color/panel_accent"
+                android:textSize="15sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!--
@@ -353,7 +665,9 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:background="@color/surface"
+        android:elevation="10dp"
         android:orientation="vertical"
+        android:outlineProvider="background"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -367,10 +681,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingStart="10dp"
-            android:paddingTop="8dp"
-            android:paddingEnd="10dp"
-            android:paddingBottom="8dp">
+            android:paddingStart="12dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="10dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -379,20 +693,20 @@
 
                 <Button
                     android:id="@+id/btnSaveSrt"
-                    style="@style/ThinButton"
+                    style="@style/PrimaryButton"
                     android:text="@string/btn_save_srt" />
 
                 <Button
                     android:id="@+id/btnSaveJson"
                     style="@style/ThinButton"
-                    android:layout_marginStart="6dp"
+                    android:layout_marginStart="8dp"
                     android:text="@string/btn_save_json" />
             </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="6dp"
                 android:orientation="horizontal">
 
                 <Button
@@ -402,14 +716,14 @@
 
                 <Button
                     android:id="@+id/btnReset"
-                    style="@style/ThinButton"
-                    android:layout_marginStart="6dp"
+                    style="@style/DangerButton"
+                    android:layout_marginStart="8dp"
                     android:text="@string/btn_reset" />
 
                 <Button
                     android:id="@+id/btnInfo"
                     style="@style/ThinButton"
-                    android:layout_marginStart="6dp"
+                    android:layout_marginStart="8dp"
                     android:text="@string/btn_info" />
             </LinearLayout>
 
@@ -418,12 +732,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:minHeight="0dp"
+                android:buttonTint="@color/panel_accent"
+                android:gravity="center_vertical"
+                android:minHeight="36dp"
+                android:paddingStart="2dp"
                 android:paddingTop="2dp"
                 android:paddingBottom="2dp"
-                android:textColor="@color/panel_text"
-                android:textSize="11sp"
-                android:text="@string/chk_keep_screen_on" />
+                android:text="@string/chk_keep_screen_on"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -442,17 +759,19 @@
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_save_toast"
         android:clickable="false"
+        android:elevation="8dp"
         android:focusable="false"
         android:fontFamily="monospace"
         android:gravity="center"
         android:maxLines="3"
         android:maxWidth="320dp"
+        android:outlineProvider="background"
         android:paddingStart="16dp"
         android:paddingTop="10dp"
         android:paddingEnd="16dp"
         android:paddingBottom="10dp"
         android:textColor="@color/panel_accent"
-        android:textSize="13sp"
+        android:textSize="12sp"
         android:visibility="gone"
         app:layout_constraintBottom_toTopOf="@id/controlPanel"
         app:layout_constraintEnd_toEndOf="parent"

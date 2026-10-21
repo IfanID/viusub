@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cue ulang: tint cyan sangat tipis dan garis kiri, tanpa mengalahkan
+     penanda live yang memakai cyan lebih kuat. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0D4DD0E1" />
+        </shape>
+    </item>
+    <item
+        android:width="2dp"
+        android:gravity="start">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/cue_number" />
+        </shape>
+    </item>
+</layer-list>
