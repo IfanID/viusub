@@ -35,7 +35,7 @@ diurutkan dari episode terbaru ke yang terlama.
 
 ```
 ┌─────────────────────────────────┐
-│ Running Man                 ↻   │ ← judul + muat ulang
+│ Running Man              👤  ↻  │ ← judul + login Viu + muat ulang
 │ 725 – 823 · 99 episode          │ ← rentang + jumlah
 ├─────────────────────────────────┤
 │ 2026                            │ ← header tahun, menempel saat scroll
@@ -52,8 +52,10 @@ diurutkan dari episode terbaru ke yang terlama.
 ```
 
 - **Kepala Home** memakai eyebrow cyan `VIUSUB · REKAM SUBTITLE`, judul
-  tebal, dan tombol muat ulang bulat. Saat memuat, ikon meredup dan spinner
-  cyan berputar di tengahnya.
+  tebal, tombol **Masuk Viu** berbentuk ikon akun, dan tombol muat ulang
+  bulat. Saat memuat, ikon muat ulang meredup dan spinner cyan berputar di
+  tengahnya. Tombol Viu membuka halaman login penuh tanpa meninggalkan app;
+  sesi cookie-nya dipakai lagi oleh pemutar di `MainActivity`.
 - **Header tahun menempel** di atas saat digulir, dan terdorong ke atas saat
   tahun berikutnya mendekat (`StickyYearOverlay`). Header ini adalah view
   asli di atas daftar, bukan gambar di kanvas, jadi selalu rata dengan tepi
@@ -66,6 +68,21 @@ diurutkan dari episode terbaru ke yang terlama.
   Begitu Viu menayangkan episode baru, angkanya ikut berubah sendiri.
 - **Cache lokal** (`filesDir/episodes.json`) dipakai lebih dulu supaya layar
   tidak kosong saat offline. Muat ulang selalu menulis ulang cache.
+
+### Login Viu
+
+Tombol akun di kepala Home membuka `ViuWebActivity`: WebView penuh ke
+`https://www.viu.com/ott/id` dengan toolbar kembali, judul halaman, progres,
+dan tombol **Selesai**. Halaman memakai User-Agent Chrome yang sama dengan
+pemutar serta cookie pihak ketiga, lalu cookie di-`flush()` saat halaman
+ditutup.
+
+Sesi itu otomatis dipakai `MainActivity` karena keduanya berbagi
+`CookieManager` WebView. Aplikasi tidak membaca atau menyimpan kata sandi;
+kredensial tetap berada di cookie jar WebView. Login terutama membuka akses
+pemutaran episode terbaru. Daftar Home sendiri masih berasal dari API publik,
+jadi kalau episode baru belum muncul di daftar, itu perlu penanganan API
+terpisah.
 
 ### Pemutar — WebView penuh
 
@@ -507,11 +524,12 @@ app/src/main/
 │   ├── StickyYearOverlay.kt    header tahun lengket
 │   ├── ThumbnailLoader.kt      pemuat thumbnail + LruCache
 │   ├── ViuApi.kt               pengambilan daftar dari API Viu
+│   ├── ViuWebActivity.kt       halaman login Viu + berbagi cookie
 │   └── VtrPayload.kt           model data payload
 └── res/
-    ├── drawable/               bg_*, ic_logo_symbol_cyan, ic_launcher_*
+    ├── drawable/               bg_*, ic_logo_symbol_cyan, ic_launcher_*, ic_viu_account, ic_arrow_back
     ├── drawable-nodpi/         viusub_logo_horizontal.png
-    ├── layout/                 activity_home, activity_main, item_episode, item_year
+    ├── layout/                 activity_home, activity_main, activity_viu_web, item_episode, item_year
     ├── mipmap-anydpi-v26/      ic_launcher (adaptive icon)
     ├── mipmap-anydpi-v33/      ic_launcher (+ monochrome)
     └── values/                 colors, strings, styles, themes

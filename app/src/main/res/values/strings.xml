@@ -21,6 +21,14 @@
     <string name="home_offline">Tidak bisa memperbarui. Menampilkan %1$d episode tersimpan.</string>
     <string name="home_failed">Gagal mengambil daftar. Periksa koneksi lalu tekan Muat Ulang.</string>
 
+    <string name="viu_login">Masuk Viu</string>
+    <string name="viu_web_title">Viu</string>
+    <string name="viu_web_host">viu.com</string>
+    <string name="viu_done">Selesai</string>
+    <string name="viu_back">Kembali</string>
+    <string name="viu_session_updated">Sesi Viu diperbarui</string>
+    <string name="viu_load_failed">Halaman Viu gagal dimuat.</string>
+
     <string name="btn_pick_folder">Pilih Folder</string>
     <string name="btn_reset">Reset</string>
     <string name="btn_save_json">Simpan JSON</string>

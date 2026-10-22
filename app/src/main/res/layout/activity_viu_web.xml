@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Halaman Viu penuh untuk login. Toolbar sengaja tipis supaya situs tetap
+  terasa lapang; WebView memakai sisa tinggi dan berbagi sesi cookie dengan
+  pemutar di MainActivity.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/panel_bottom"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/surface"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="6dp"
+        android:paddingEnd="10dp">
+
+        <ImageButton
+            android:id="@+id/btnViuBack"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_icon_button"
+            android:contentDescription="@string/viu_back"
+            android:padding="10dp"
+            android:src="@drawable/ic_arrow_back" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="9dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/viuTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:text="@string/viu_web_title"
+                android:textColor="@color/panel_text"
+                android:textSize="15sp" />
+
+            <TextView
+                android:id="@+id/viuHost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:text="@string/viu_web_host"
+                android:textColor="@color/text_tertiary"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnViuDone"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_live_pill"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center"
+            android:minWidth="68dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/viu_done"
+            android:textColor="@color/panel_accent"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider_soft" />
+
+    <ProgressBar
+        android:id="@+id/viuProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:max="100"
+        android:progressDrawable="@drawable/progress_coverage"
+        android:visibility="gone" />
+
+    <WebView
+        android:id="@+id/viuWebView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="@color/panel_bottom" />
+
+</LinearLayout>

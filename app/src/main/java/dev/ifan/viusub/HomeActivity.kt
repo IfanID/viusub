@@ -10,6 +10,8 @@ import android.text.TextWatcher
 import android.view.MotionEvent
 import android.util.Log
 import android.view.View
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -47,6 +49,24 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var adapter: EpisodeAdapter
     private lateinit var stickyYear: StickyYearOverlay
 
+    /**
+     * Halaman Viu hanya melaporkan OK kalau cookie sesinya berubah.
+     * Setelah itu daftar dimuat ulang, walaupun API publik tetap memakai
+     * data tamu; login terutama membuka akses pemutaran di MainActivity.
+     */
+    private val viuLoginLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            Toast.makeText(
+                this,
+                R.string.viu_session_updated,
+                Toast.LENGTH_SHORT,
+            ).show()
+            refresh()
+        }
+    }
+
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -77,6 +97,9 @@ class HomeActivity : AppCompatActivity() {
         stickyYear = StickyYearOverlay(binding.list, binding.stickyYear, adapter)
 
         binding.btnRefresh.setOnClickListener { refresh() }
+        binding.btnViuLogin.setOnClickListener {
+            viuLoginLauncher.launch(Intent(this, ViuWebActivity::class.java))
+        }
 
         binding.search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
