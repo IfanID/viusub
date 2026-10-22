@@ -88,7 +88,7 @@ terpisah.
 
 ```
 ┌─────────────────────────────────┐
-│ (12)                            │ ← indikator nomor cue, hanya fullscreen
+│ (12)                            │ ← badge nomor cue; ketuk untuk pratinjau
 │                                 │
 │            video                │
 │                                 │
@@ -244,12 +244,14 @@ terpisah.
   memperlihatkan pemain dalam tampilan yang sudah benar, tanpa menunggu
   video mulai diputar. Batas aman 20 detik; layar yang dibuka tanpa
   episode tidak memunculkan layar sapaan.
-- **Indikator nomor cue** di pojok kiri atas berisi satu angka saja: jumlah
-  cue yang sudah terekam. Hanya tampil saat video **fullscreen**; di tampilan
-  biasa disembunyikan supaya pojok layar bersih. Angka diambil dari `cueCount`
-  di payload penuh, bukan dari daftar yang dipangkas, jadi tidak pernah macet
-  di 30. Sengaja `clickable=false` supaya sentuhan di area itu tetap jatuh ke
-  WebView.
+- **Badge nomor cue** di pojok kiri atas berisi jumlah cue yang sudah
+  terekam. Hanya tampil saat video **fullscreen**; di tampilan biasa
+  disembunyikan supaya pojok layar bersih. Angka diambil dari `cueCount` di
+  payload penuh, bukan dari daftar yang dipangkas, jadi tidak pernah macet di
+  30. Ketuk badge untuk membuka **pratinjau cue** tepat di bawahnya; kartu
+  menampilkan nomor cue dan subtitle live yang sedang tampil, ikut berubah
+  selama terbuka, dan bisa ditutup dengan mengetuk badge atau kartunya.
+  Pratinjau selalu ditutup saat keluar dari fullscreen.
 - **Fullscreen** didukung lewat `WebChromeClient.onShowCustomView`. Tanpa itu,
   `requestFullscreen()` dari halaman ditolak diam-diam dan tombol fullscreen
   tidak berefek.

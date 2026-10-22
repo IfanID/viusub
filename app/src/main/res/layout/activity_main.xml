@@ -522,39 +522,78 @@
     </FrameLayout>
 
     <!--
-      Indikator nomor cue. Isinya satu angka saja: jumlah cue yang sudah
-      terekam. Hanya muncul saat video fullscreen; di tampilan biasa
-      disembunyikan supaya pojok layar bersih.
-
-      Sengaja tidak clickable/focusable: view yang tidak mengonsumsi
-      sentuhan akan dilewati, dan event-nya jatuh ke WebView di
-      bawahnya. Jadi area ini tetap bisa dipakai seperti biasa.
+      Overlay nomor cue di fullscreen. Angka bisa diketuk untuk membuka
+      pratinjau subtitle cue yang sedang tampil. Di tampilan biasa seluruh
+      container disembunyikan supaya sentuhan tetap jatuh ke WebView.
     -->
-    <TextView
-        android:id="@+id/cueBadge"
+    <LinearLayout
+        android:id="@+id/cueOverlay"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:layout_marginTop="8dp"
-        android:background="@drawable/bg_cue_badge"
-        android:clickable="false"
-        android:elevation="4dp"
-        android:focusable="false"
-        android:fontFamily="monospace"
-        android:gravity="center"
-        android:minHeight="30dp"
-        android:minWidth="30dp"
-        android:outlineProvider="background"
-        android:paddingStart="8dp"
-        android:paddingTop="4dp"
-        android:paddingEnd="8dp"
-        android:paddingBottom="4dp"
-        android:textColor="@color/panel_accent"
-        android:textSize="14sp"
-        android:textStyle="bold"
+        android:orientation="vertical"
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:id="@+id/cueBadge"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_cue_badge"
+            android:clickable="true"
+            android:elevation="4dp"
+            android:focusable="true"
+            android:fontFamily="monospace"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center"
+            android:outlineProvider="background"
+            android:textColor="@color/panel_accent"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/cuePreviewCard"
+            android:layout_width="280dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_cue_preview"
+            android:clickable="true"
+            android:elevation="6dp"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:orientation="vertical"
+            android:outlineProvider="background"
+            android:paddingStart="13dp"
+            android:paddingTop="9dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="9dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/cuePreviewLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.14"
+                android:textColor="@color/panel_accent"
+                android:textSize="8sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/cuePreviewText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="2dp"
+                android:maxLines="3"
+                android:textColor="@color/panel_text"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
 
     <!--
       Bar live. Posisinya diatur MainActivity: tepat di bawah <video>.

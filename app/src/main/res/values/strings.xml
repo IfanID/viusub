@@ -42,6 +42,10 @@
     <string name="chk_keep_screen_on">Layar tetap nyala saat merekam</string>
 
     <string name="panel_idle">Menunggu subtitle…</string>
+    <string name="cue_preview_label">PRATINJAU SUBTITLE</string>
+    <string name="cue_preview_waiting">Menunggu subtitle…</string>
+    <string name="cue_badge_open_desc">Cue %1$d. Ketuk untuk membuka pratinjau subtitle.</string>
+    <string name="cue_badge_close_desc">Cue %1$d. Ketuk untuk menutup pratinjau subtitle.</string>
     <string name="status_title">Status perekam</string>
     <string name="status_empty">Belum ada data perekam.</string>
     <string name="status_dialog_hint">Data dari polling terakhir</string>

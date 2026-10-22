@@ -62,6 +62,9 @@ class MainActivity : AppCompatActivity() {
     /** Angka terakhir yang ditulis ke badge, supaya tidak digambar ulang. */
     private var lastCueNumber: Int = -1
 
+    /** Kartu pratinjau subtitle sedang terbuka di bawah badge fullscreen. */
+    private var cuePreviewExpanded = false
+
     private var lastPayload: VtrPayload? = null
     private var folderUri: Uri? = null
 
@@ -358,8 +361,8 @@ class MainActivity : AppCompatActivity() {
      *
      * The system bar is hidden so the video really fills the screen, and the
      * live bar (plus the transcript panel under it) is hidden because the
-     * video now occupies the whole area. The cue number badge appears only
-     * while fullscreen, so the normal view stays clean.
+     * video now occupies the whole area. The cue badge and its optional
+     * preview appear only while fullscreen, so the normal view stays clean.
      */
     private fun applyFullscreenChrome(enabled: Boolean) {
         val controller = WindowInsetsControllerCompat(window, binding.root)
@@ -505,6 +508,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupLiveBar() {
         showEpisodeTitle(episodeTitle)
+
+        // Badge nomor di fullscreen bisa membuka pratinjau subtitle.
+        // Kartu pratinjau sendiri juga bisa diketuk untuk menutup.
+        binding.cueBadge.setOnClickListener {
+            setCuePreviewExpanded(!cuePreviewExpanded)
+        }
+        binding.cuePreviewCard.setOnClickListener {
+            setCuePreviewExpanded(false)
+        }
+
         binding.btnInfo.setOnClickListener { showStatusDialog() }
 
         binding.btnPickFolder.setOnClickListener {
@@ -562,7 +575,10 @@ class MainActivity : AppCompatActivity() {
         invalidateFullTranscript()
         transcriptAdapter.clear()
         binding.transcriptEmpty.visibility = View.VISIBLE
-        binding.cueBadge.visibility = View.GONE
+        cuePreviewExpanded = false
+        binding.cuePreviewCard.animate().cancel()
+        binding.cuePreviewCard.visibility = View.GONE
+        binding.cueOverlay.visibility = View.GONE
         say(getString(R.string.panel_idle))
     }
 
@@ -1338,6 +1354,16 @@ class MainActivity : AppCompatActivity() {
         // yang sudah selesai (✓) dan keadaan menunggu ditampilkan redup,
         // supaya mata tahu mana yang benar-benar sedang tampil di video.
         val hasLive = PayloadFormatter.hasLiveCue(payload)
+        val preview = line.ifBlank { getString(R.string.cue_preview_waiting) }
+        if (binding.cuePreviewText.text != preview) {
+            binding.cuePreviewText.text = preview
+        }
+        binding.cuePreviewText.setTextColor(
+            ContextCompat.getColor(
+                this,
+                if (hasLive) R.color.panel_accent else R.color.meta_text,
+            ),
+        )
         binding.liveText.setTextColor(
             ContextCompat.getColor(
                 this,
@@ -1355,19 +1381,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Badge pojok kiri atas: satu angka, jumlah cue yang sudah terekam.
+     * Badge pojok kiri atas: jumlah cue yang sudah terekam. Angka ini juga
+     * menjadi tombol untuk membuka pratinjau subtitle di fullscreen.
      *
-     * Anganya disembunyikan selama masih nol, supaya yang muncul hanya
-     * angka yang benar-benar hasil rekaman — mulai dari 1.
+     * Angka disembunyikan selama masih nol, supaya yang muncul hanya angka
+     * yang benar-benar hasil rekaman — mulai dari 1.
      *
      * Cue count diambil dari payload penuh, bukan dari daftar yang
-     * dipangkas 30 baris terakhir, jadi angkanya tidak pernah macet di
-     * 30.
+     * dipangkas 30 baris terakhir, jadi angkanya tidak pernah macet di 30.
      */
     private fun updateCueBadge(jumlah: Int) {
         if (jumlah == lastCueNumber) return
         lastCueNumber = jumlah
         binding.cueBadge.text = jumlah.toString()
+        updateCueBadgeDescription()
         refreshCueBadge()
     }
 
@@ -1377,8 +1404,64 @@ class MainActivity : AppCompatActivity() {
      * tidak menutupi hal lain.
      */
     private fun refreshCueBadge() {
-        binding.cueBadge.visibility =
-            if (inFullscreen && lastCueNumber > 0) View.VISIBLE else View.GONE
+        val show = inFullscreen && lastCueNumber > 0
+        binding.cueOverlay.visibility = if (show) View.VISIBLE else View.GONE
+
+        if (!show) {
+            cuePreviewExpanded = false
+            binding.cuePreviewCard.animate().cancel()
+            binding.cuePreviewCard.visibility = View.GONE
+        }
+        updateCueBadgeDescription()
+    }
+
+    private fun updateCueBadgeDescription() {
+        if (lastCueNumber <= 0) {
+            binding.cueBadge.contentDescription = null
+            binding.cuePreviewLabel.text = null
+            return
+        }
+        binding.cuePreviewLabel.text = getString(R.string.cue_preview_label)
+        binding.cueBadge.contentDescription = getString(
+            if (cuePreviewExpanded) R.string.cue_badge_close_desc
+            else R.string.cue_badge_open_desc,
+            lastCueNumber,
+        )
+    }
+
+    /**
+     * Membuka/menutup kartu pratinjau di bawah badge. Kartu memakai data
+     * live yang sama dengan bar bawah, jadi teksnya ikut berubah selama
+     * masih terbuka.
+     */
+    private fun setCuePreviewExpanded(expanded: Boolean) {
+        if (cuePreviewExpanded == expanded) return
+        cuePreviewExpanded = expanded
+
+        val card = binding.cuePreviewCard
+        card.animate().cancel()
+        val lift = -(4 * resources.displayMetrics.density)
+
+        if (expanded) {
+            card.visibility = View.VISIBLE
+            card.alpha = 0f
+            card.translationY = lift
+            card.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(140)
+                .start()
+        } else {
+            card.animate()
+                .alpha(0f)
+                .translationY(lift)
+                .setDuration(90)
+                .withEndAction {
+                    if (!cuePreviewExpanded) card.visibility = View.GONE
+                }
+                .start()
+        }
+        updateCueBadgeDescription()
     }
 
     /** Menampilkan pesan singkat di bar (mis. hasil ekspor). */
