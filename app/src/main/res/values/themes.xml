@@ -23,4 +23,15 @@
         <item name="colorButtonNormal">@color/surface_raised</item>
         <item name="android:textColorHighlight">@color/accent_ripple</item>
     </style>
+
+    <!--
+      Splash bawaan Android 12+. Ikon peluncur dipakai lagi di sini supaya
+      transisi dari ikon ke layar Home terasa satu identitas. Latar ikon
+      dibuat sama dengan latar splash agar tidak muncul lingkaran berbeda.
+    -->
+    <style name="Theme.ViuSub.Splash" parent="Theme.ViuSub">
+        <item name="android:windowSplashScreenBackground">@color/surface</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/surface</item>
+    </style>
 </resources>

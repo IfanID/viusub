@@ -1,35 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Latar hitam. Gelembung obrolan cyan ramping di atas dengan ekor kecil
-  kiri bawah; logo subtitle CC di kanan bawah, di luar gelembung, kini
-  dibungkus kotak background cyan dengan huruf C gelap di dalamnya.
+  Simbol Cue Brackets untuk adaptive icon. Konten berukuran sekitar 67dp
+  di kanvas 108dp, sesuai proporsi app icon resmi dari kit logo.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- gelembung obrolan ramping -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M34,30h40a7,7 0 0 1 7,7v6a7,7 0 0 1 -7,7H34a7,7 0 0 1 -7,-7v-6a7,7 0 0 1 7,-7z" />
-    <!-- ekor gelembung kiri bawah -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M36,46L33,62L46,50Z" />
-    <!-- kotak background logo subtitle -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M58,57h19a5,5 0 0 1 5,5v6a5,5 0 0 1 -5,5H58a5,5 0 0 1 -5,-5v-6a5,5 0 0 1 5,-5z" />
-    <!-- huruf "C C" gelap di dalam kotak -->
-    <path
-        android:pathData="M65.55,62.45A3.6,3.6 0 1 0 65.55,67.55"
-        android:strokeColor="#0F1216"
-        android:strokeWidth="2.6"
-        android:strokeLineCap="round" />
-    <path
-        android:pathData="M74.55,62.45A3.6,3.6 0 1 0 74.55,67.55"
-        android:strokeColor="#0F1216"
-        android:strokeWidth="2.6"
-        android:strokeLineCap="round" />
+    <group
+        android:scaleX="0.3804"
+        android:scaleY="0.3804"
+        android:translateX="5.31"
+        android:translateY="5.31">
+        <path
+            android:fillColor="#00E5FF"
+            android:pathData="M40,56H98V76H60V180H98V200H40Z" />
+        <path
+            android:fillColor="#00E5FF"
+            android:pathData="M216,56H158V76H196V180H158V200H216Z" />
+        <path
+            android:fillColor="#00E5FF"
+            android:pathData="M97,116H159A3,3 0 0 1 162,119V137A3,3 0 0 1 159,140H97A3,3 0 0 1 94,137V119A3,3 0 0 1 97,116Z" />
+    </group>
 </vector>

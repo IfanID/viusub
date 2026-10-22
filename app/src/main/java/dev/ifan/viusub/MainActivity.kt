@@ -779,11 +779,11 @@ class MainActivity : AppCompatActivity() {
         )
 
         binding.coverageBar.progress = (coverage * 10).toInt()
-        binding.statPosition.text = buildString {
-            append(payload.position ?: "--:--")
-            append("  /  ")
-            append(payload.total ?: "--:--")
-        }
+        binding.statPosition.text = getString(
+            R.string.stat_position,
+            payload.position ?: "--:--",
+            payload.total ?: "--:--",
+        )
         binding.statRemaining.text =
             getString(R.string.stat_remaining, payload.remaining ?: "--:--")
     }
@@ -1345,6 +1345,7 @@ class MainActivity : AppCompatActivity() {
             ),
         )
         binding.livePill.alpha = if (hasLive) 1f else 0.45f
+        binding.liveDot.alpha = if (hasLive) 1f else 0.35f
 
         // Transkrip cukup diperbarui dua kali per detik; payload tetap
         // dibaca sepuluh kali per detik untuk bar live.

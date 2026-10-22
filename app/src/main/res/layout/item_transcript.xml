@@ -65,12 +65,12 @@
             android:includeFontPadding="false"
             android:maxLines="1"
             android:textColor="@color/cue_number"
-            android:textSize="11sp" />
+            android:textSize="12sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/cueTime"
-        android:layout_width="92dp"
+        android:layout_width="98dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:fontFamily="monospace"
@@ -78,7 +78,7 @@
         android:lineSpacingExtra="1dp"
         android:maxLines="2"
         android:textColor="@color/meta_text"
-        android:textSize="9sp" />
+        android:textSize="10sp" />
 
     <TextView
         android:id="@+id/cueText"

@@ -30,7 +30,7 @@
     <color name="scrim">#CC000000</color>
     <color name="live_bar_stroke">#4D00E5FF</color>
     <color name="button_primary_text">#001014</color>
-    <color name="ic_launcher_background">#000000</color>
+    <color name="ic_launcher_background">#0B0B0B</color>
     <color name="error_text">#FF6B6B</color>
     <!-- Latar baris cue yang masih live di transkrip. -->
     <color name="live_row">#1A00E5FF</color>

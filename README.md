@@ -9,6 +9,21 @@ lewat `evaluateJavascript`, dan hasilnya dibaca kembali oleh app sendiri.
 
 Dibangun dan diuji di Termux (aarch64, PRoot-Distro Arch Linux ARM).
 
+## Logo
+
+Identitas aplikasi memakai konsep **Cue Brackets**: dua kurung berhadapan
+yang mengapit satu baris caption, tanpa tombol play atau strip film. Kit
+sumbernya ada di `/storage/emulated/0/Documents/ViuSub-logo`.
+
+- Warna: cyan `#00E5FF`, ink `#0B0B0B`, paper `#F2F2F2`.
+- App icon: simbol cyan di atas tile `#0B0B0B`, foreground adaptive 108dp,
+  plus layer monochrome untuk themed icon Android 13+.
+- Splash bawaan Android 12+ memakai app icon di latar ink; splash di dalam
+  aplikasi memakai lockup horizontal color-dark, dengan simbol cyan dan
+  wordmark paper. Simbol kecil juga dipakai di eyebrow Home.
+- Wordmark adalah outlined **Adwaita Sans SemiBold**, lisensi OFL-1.1.
+  Jangan mengubah jarak, warna, atau bentuk wordmark.
+
 ---
 
 ## Dua layar
@@ -32,7 +47,7 @@ diurutkan dari episode terbaru ke yang terlama.
 │ …                               │
 ├─────────────────────────────────┤
 │ 99 episode                      │
-│ [ 🔍 cari nomor episode…    ✕ ] │ ← bar bawah, ada bayangan
+│ [ 🔍 cari judul / nomor…    ✕ ] │ ← bar bawah, ada bayangan
 └─────────────────────────────────┘
 ```
 
@@ -246,9 +261,8 @@ Aturan teksnya port dari `shared/utils/cari.ts` milik rout-web:
 episode 725–823 jadi awalan membuat "4" tidak menemukan apa pun. Tanggal
 tidak ikut dicari, supaya "25" tidak memicu semua episode yang tayang tanggal 25.
 
-> **Batasan yang sekarang berlaku:** kolom cari sengaja dibatasi angka saja
-> (`inputType="number"`, `digits="0123456789"`), jadi jalur pencarian teks di
-> `Cari` belum bisa dipakai dari UI. Kode Jalur teksnya sudah ada dan siap.
+> Kolom cari menerima **judul maupun nomor episode**. Angka tetap dicocokkan
+> ke nomor saja; teks memakai jalur `Cari` di atas. Tanggal tidak ikut dicari.
 
 ---
 
@@ -495,8 +509,11 @@ app/src/main/
 │   ├── ViuApi.kt               pengambilan daftar dari API Viu
 │   └── VtrPayload.kt           model data payload
 └── res/
-    ├── drawable/               bg_*, ic_*
+    ├── drawable/               bg_*, ic_logo_symbol_cyan, ic_launcher_*
+    ├── drawable-nodpi/         viusub_logo_horizontal.png
     ├── layout/                 activity_home, activity_main, item_episode, item_year
+    ├── mipmap-anydpi-v26/      ic_launcher (adaptive icon)
+    ├── mipmap-anydpi-v33/      ic_launcher (+ monochrome)
     └── values/                 colors, strings, styles, themes
 ```
 

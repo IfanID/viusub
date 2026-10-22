@@ -15,6 +15,7 @@
         <activity
             android:name=".HomeActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:theme="@style/Theme.ViuSub.Splash"
             android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
@@ -26,6 +27,7 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:theme="@style/Theme.ViuSub"
             android:exported="false" />
     </application>
 

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ViuSub</string>
-    <string name="splash_brand">VIUSUB</string>
 
     <string name="home_eyebrow">VIUSUB · REKAM SUBTITLE</string>
     <string name="home_title">Running Man</string>
@@ -10,7 +9,7 @@
     <string name="home_range">Terlama %1$d  ·  Terbaru %2$d</string>
     <string name="home_range_count">%1$d episode  ·  EP %2$d–%3$d</string>
     <string name="home_range_empty">Belum ada episode</string>
-    <string name="home_search_hint">Cari episode, nomor, atau tanggal</string>
+    <string name="home_search_hint">Cari judul atau nomor episode</string>
     <string name="home_query_short">Ketik minimal dua huruf.</string>
     <string name="home_query_empty">Tidak ada hasil untuk \"%1$s\".</string>
     <string name="home_query_results">%1$d hasil</string>
@@ -47,8 +46,9 @@
     <string name="stat_cue">CUE</string>
     <string name="stat_live">LIVE</string>
     <string name="stat_replay">ULANG</string>
-    <string name="stat_coverage">CAKUP</string>
+    <string name="stat_coverage">CAKUPAN</string>
     <string name="stat_gap">CELAH</string>
+    <string name="stat_position">POSISI  %1$s  /  %2$s</string>
     <string name="stat_remaining">sisa %1$s</string>
     <string name="live_pill">LIVE</string>
     <string name="control_heading">EKSPOR &amp; KONTROL</string>

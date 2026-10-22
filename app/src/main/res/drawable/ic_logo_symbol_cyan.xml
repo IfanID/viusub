@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Simbol Cue Brackets versi kecil (64 viewBox) untuk kepala Home.
+  Dua kurung berhadapan mengapit satu baris caption — bukan tombol play.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M9,13H28V21H17V43H28V51H9Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M55,13H36V21H47V43H36V51H55Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M23,27.5H41A1,1 0 0 1 42,28.5V35.5A1,1 0 0 1 41,36.5H23A1,1 0 0 1 22,35.5V28.5A1,1 0 0 1 23,27.5Z" />
+</vector>

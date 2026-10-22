@@ -1,6 +1,7 @@
 package dev.ifan.viusub
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +11,7 @@ import android.view.MotionEvent
 import android.util.Log
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -58,6 +60,9 @@ class HomeActivity : AppCompatActivity() {
 
     /** Teks status terakhir dari pemuatan, dipakai lagi saat kueri dikosongkan. */
     private var baseStatus: String = ""
+
+    /** Warna titik status untuk pesan dasar di atas. */
+    private var baseTone: Int = R.color.panel_accent
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,7 +113,8 @@ class HomeActivity : AppCompatActivity() {
         if (cached.isNotEmpty()) {
             setEpisodes(cached)
             baseStatus = getString(R.string.home_cached, cached.size)
-            binding.status.text = baseStatus
+            baseTone = R.color.panel_accent
+            setStatus(baseStatus, baseTone)
         }
 
         refresh()
@@ -210,14 +216,14 @@ class HomeActivity : AppCompatActivity() {
 
         if (query.isEmpty()) {
             adapter.submit(all)
-            binding.status.text = baseStatus
+            setStatus(baseStatus, baseTone)
             updateEmptyState()
             return
         }
 
         if (Cari.terlaluPendek(query)) {
             adapter.submit(all)
-            binding.status.text = getString(R.string.home_query_short)
+            setStatus(getString(R.string.home_query_short), R.color.provisional_mark)
             updateEmptyState()
             return
         }
@@ -254,14 +260,32 @@ class HomeActivity : AppCompatActivity() {
 
         if (hasil.isEmpty()) {
             adapter.submitSearch(emptyList(), query)
-            binding.status.text = getString(R.string.home_query_empty, query)
+            setStatus(
+                getString(R.string.home_query_empty, query),
+                R.color.provisional_mark,
+            )
             updateEmptyState()
             return
         }
 
         adapter.submitSearch(hasil, query)
-        binding.status.text = getString(R.string.home_query_results, hasil.size)
+        setStatus(
+            getString(R.string.home_query_results, hasil.size),
+            R.color.panel_accent,
+        )
         updateEmptyState()
+    }
+
+    /**
+     * Status di dasar Home selalu punya titik warna. Warna membuat jenis
+     * pesan cepat terbaca: cyan untuk alur normal, amber untuk pencarian
+     * yang belum lengkap/offline, dan merah untuk kegagalan total.
+     */
+    private fun setStatus(text: String, tone: Int = R.color.panel_accent) {
+        binding.status.text = text
+        binding.statusDot.visibility = if (text.isBlank()) View.INVISIBLE else View.VISIBLE
+        binding.statusDot.backgroundTintList =
+            ColorStateList.valueOf(ContextCompat.getColor(this, tone))
     }
 
     /** Umpan balik visual saat daftar sedang diambil ulang. */
@@ -274,7 +298,7 @@ class HomeActivity : AppCompatActivity() {
     private fun refresh() {
         if (loading) return
         loading = true
-        binding.status.text = getString(R.string.home_loading)
+        setStatus(getString(R.string.home_loading), R.color.panel_accent)
         setRefreshing(true)
 
         worker.execute {
@@ -292,18 +316,24 @@ class HomeActivity : AppCompatActivity() {
                 if (result.isEmpty()) {
                     // Jangan hapus yang sedang tampil: cache lebih baik
                     // daripada layar kosong.
+                    baseTone = if (all.isNotEmpty()) {
+                        R.color.provisional_mark
+                    } else {
+                        R.color.error_text
+                    }
                     baseStatus = if (all.isNotEmpty()) {
                         getString(R.string.home_offline, all.size)
                     } else {
                         getString(R.string.home_failed)
                     }
-                    binding.status.text = baseStatus
+                    setStatus(baseStatus, baseTone)
                     return@post
                 }
 
                 setEpisodes(result)
                 EpisodeCache.save(this, result)
                 baseStatus = getString(R.string.home_loaded, result.size)
+                baseTone = R.color.panel_accent
 
                 // Kalau pengguna sedang mengetik, jangan timpa hasilnya.
                 applyQuery(binding.search.text?.toString().orEmpty())
