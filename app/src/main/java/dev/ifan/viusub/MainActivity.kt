@@ -20,9 +20,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -549,6 +549,60 @@ class MainActivity : AppCompatActivity() {
         binding.episodeTitleText.text = title
     }
 
+    /** Dialog dengan permukaan gelap yang sama dengan panel aplikasi. */
+    private fun themedDialog(): AlertDialog.Builder =
+        AlertDialog.Builder(this, R.style.Theme_ViuSub_Dialog)
+
+    /**
+     * Menampilkan dialog dengan lebar terkendali: 90% layar, maksimal
+     * 420dp. Tanpa batas ini kartu ikut melar mengikuti baris status
+     * monospace yang panjang.
+     */
+    private fun showThemedView(view: View): AlertDialog {
+        val dialog = themedDialog().setView(view).create()
+        val density = resources.displayMetrics.density
+        val width = minOf(
+            (resources.displayMetrics.widthPixels * 0.9f).toInt(),
+            (420 * density).toInt(),
+        )
+        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.show()
+        return dialog
+    }
+
+    /**
+     * Dialog konfirmasi bertema. Layout yang sama dipakai tombol Reset dan
+     * peringatan celah sebelum ekspor; [danger] mengganti tombol positif
+     * ke gaya amber yang sama dengan tombol Danger di panel kontrol.
+     */
+    private fun showConfirmDialog(
+        eyebrow: String,
+        title: String,
+        message: String,
+        positiveLabel: String,
+        danger: Boolean,
+        onConfirm: () -> Unit,
+    ) {
+        val view = layoutInflater.inflate(R.layout.dialog_confirm, null)
+        view.findViewById<TextView>(R.id.dialogEyebrow).text = eyebrow
+        view.findViewById<TextView>(R.id.dialogTitle).text = title
+        view.findViewById<TextView>(R.id.dialogMessage).text = message
+
+        val positive = view.findViewById<Button>(R.id.dialogPositive)
+        positive.text = positiveLabel
+        if (danger) {
+            positive.setBackgroundResource(R.drawable.bg_button_danger)
+            positive.setTextColor(ContextCompat.getColor(this, R.color.provisional_mark))
+        }
+
+        val dialog = showThemedView(view)
+        view.findViewById<Button>(R.id.dialogNegative).setOnClickListener { dialog.dismiss() }
+        positive.setOnClickListener {
+            dialog.dismiss()
+            onConfirm()
+        }
+    }
+
     /**
      * Reset menghapus seluruh rekaman. Kalau sudah ada cue, minta
      * konfirmasi lebih dulu supaya satu ketukan tidak menghabiskan hasil
@@ -559,16 +613,17 @@ class MainActivity : AppCompatActivity() {
             performReset()
             return
         }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.reset_confirm_title)
-            .setMessage(R.string.reset_confirm_message)
-            .setPositiveButton(R.string.reset_confirm_positive) { _, _ -> performReset() }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        showConfirmDialog(
+            eyebrow = getString(R.string.dialog_reset_eyebrow),
+            title = getString(R.string.reset_confirm_title),
+            message = getString(R.string.reset_confirm_message),
+            positiveLabel = getString(R.string.reset_confirm_positive),
+            danger = true,
+            onConfirm = ::performReset,
+        )
     }
 
     private fun performReset() {
-        binding.webView.evaluateJavascript(RecorderScript.RESET, null)
         lastRenderedLine = null
         lastPayload = null
         lastCueNumber = -1
@@ -580,6 +635,15 @@ class MainActivity : AppCompatActivity() {
         binding.cuePreviewCard.visibility = View.GONE
         binding.cueOverlay.visibility = View.GONE
         say(getString(R.string.panel_idle))
+
+        // Kosongkan rekaman dulu, lalu kembalikan video ke awal lewat
+        // controller yang sama dengan lompatan transkrip. Callback dipakai
+        // supaya baseline 0 sudah terpasang sebelum seek dikirim; kalau
+        // tidak, seek bisa mendahului reset dan baseline memakai posisi
+        // lama.
+        binding.webView.evaluateJavascript(RecorderScript.RESET) {
+            ensureJumpController().jumpTo(0.0)
+        }
     }
 
     /**
@@ -797,11 +861,11 @@ class MainActivity : AppCompatActivity() {
         binding.coverageBar.progress = (coverage * 10).toInt()
         binding.statPosition.text = getString(
             R.string.stat_position,
-            payload.position ?: "--:--",
-            payload.total ?: "--:--",
+            PayloadFormatter.fullClock(payload.position),
+            PayloadFormatter.fullClock(payload.total),
         )
         binding.statRemaining.text =
-            getString(R.string.stat_remaining, payload.remaining ?: "--:--")
+            getString(R.string.stat_remaining, PayloadFormatter.fullClock(payload.remaining))
     }
 
     private fun updateTranscript(payload: VtrPayload) {
@@ -1074,18 +1138,29 @@ class MainActivity : AppCompatActivity() {
         val view = layoutInflater.inflate(R.layout.dialog_status, null)
         view.findViewById<TextView>(R.id.statusText).text = message
 
-        AlertDialog.Builder(this)
-            .setTitle(R.string.status_title)
-            .setView(view)
-            .setNeutralButton(R.string.status_copy) { _, _ ->
-                val clipboard = getSystemService(ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(
-                    ClipData.newPlainText(getString(R.string.status_title), message),
-                )
-                Toast.makeText(this, R.string.status_copied, Toast.LENGTH_SHORT).show()
-            }
-            .setPositiveButton(R.string.status_close, null)
-            .show()
+        val hint = view.findViewById<TextView>(R.id.statusHint)
+        val originalHint = getString(R.string.status_dialog_hint)
+        val hintColor = ContextCompat.getColor(this, R.color.text_tertiary)
+        val accentColor = ContextCompat.getColor(this, R.color.panel_accent)
+        val restoreHint = Runnable {
+            hint.text = originalHint
+            hint.setTextColor(hintColor)
+        }
+
+        val dialog = showThemedView(view)
+        view.findViewById<Button>(R.id.statusCopy).setOnClickListener {
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            clipboard?.setPrimaryClip(
+                ClipData.newPlainText(getString(R.string.status_title), message),
+            )
+            // Umpan balik di dalam dialog, bukan Toast sistem yang
+            // gayanya lepas dari tema aplikasi.
+            mainHandler.removeCallbacks(restoreHint)
+            hint.text = getString(R.string.status_copied)
+            hint.setTextColor(accentColor)
+            mainHandler.postDelayed(restoreHint, 1600)
+        }
+        view.findViewById<Button>(R.id.statusClose).setOnClickListener { dialog.dismiss() }
     }
 
     /**
@@ -1210,12 +1285,14 @@ class MainActivity : AppCompatActivity() {
         } else {
             getString(R.string.export_gap_message_empty, from, to)
         }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.export_gap_title)
-            .setMessage(message)
-            .setPositiveButton(R.string.export_gap_continue) { _, _ -> proceed() }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        showConfirmDialog(
+            eyebrow = getString(R.string.dialog_export_eyebrow),
+            title = getString(R.string.export_gap_title),
+            message = message,
+            positiveLabel = getString(R.string.export_gap_continue),
+            danger = false,
+            onConfirm = proceed,
+        )
     }
 
     private fun withFullPayload(block: (String?, VtrPayload?) -> Unit) {
@@ -1381,37 +1458,43 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Badge pojok kiri atas: jumlah cue yang sudah terekam. Angka ini juga
-     * menjadi tombol untuk membuka pratinjau subtitle di fullscreen.
+     * Badge pojok kiri atas: tombol untuk membuka pratinjau subtitle di
+     * fullscreen. Badge tidak menampilkan angka permanen; jumlah cue
+     * dipindahkan ke label kartu pratinjau supaya pojok video tidak
+     * menarik perhatian saat menonton.
      *
-     * Angka disembunyikan selama masih nol, supaya yang muncul hanya angka
-     * yang benar-benar hasil rekaman — mulai dari 1.
-     *
-     * Cue count diambil dari payload penuh, bukan dari daftar yang
-     * dipangkas 30 baris terakhir, jadi angkanya tidak pernah macet di 30.
+     * Saat jumlah cue bertambah, ikon berdenyut sekali. Cue count diambil
+     * dari payload penuh, bukan dari daftar yang dipangkas 30 baris
+     * terakhir, jadi angkanya tidak pernah macet di 30.
      */
     private fun updateCueBadge(jumlah: Int) {
         if (jumlah == lastCueNumber) return
+        val naik = jumlah > lastCueNumber && lastCueNumber >= 0
         lastCueNumber = jumlah
-        binding.cueBadge.text = jumlah.toString()
-        updateCueBadgeDescription()
         refreshCueBadge()
+        if (naik && jumlah > 0 && inFullscreen && !cuePreviewExpanded) {
+            pulseCueBadge()
+        }
     }
 
     /**
-     * Angka cue hanya tampil selama video fullscreen. Di tampilan biasa,
-     * pojok kiri atas dibiarkan bersih — angka tak mengambang terus dan
-     * tidak menutupi hal lain.
+     * Badge hanya tampil selama video fullscreen dan sudah ada cue. Di
+     * tampilan biasa pojok kiri atas dibiarkan bersih. Badge selalu
+     * kembali ke alpha redup saat tidak sedang dibuka atau berdenyut.
      */
     private fun refreshCueBadge() {
         val show = inFullscreen && lastCueNumber > 0
-        binding.cueOverlay.visibility = if (show) View.VISIBLE else View.GONE
-
         if (!show) {
             cuePreviewExpanded = false
             binding.cuePreviewCard.animate().cancel()
             binding.cuePreviewCard.visibility = View.GONE
         }
+        binding.cueOverlay.visibility = if (show) View.VISIBLE else View.GONE
+
+        binding.cueBadge.animate().cancel()
+        binding.cueBadge.scaleX = 1f
+        binding.cueBadge.scaleY = 1f
+        binding.cueBadge.alpha = if (show && cuePreviewExpanded) 1f else CUE_BADGE_ALPHA
         updateCueBadgeDescription()
     }
 
@@ -1421,12 +1504,41 @@ class MainActivity : AppCompatActivity() {
             binding.cuePreviewLabel.text = null
             return
         }
-        binding.cuePreviewLabel.text = getString(R.string.cue_preview_label)
+        binding.cuePreviewLabel.text = getString(R.string.cue_preview_label, lastCueNumber)
         binding.cueBadge.contentDescription = getString(
             if (cuePreviewExpanded) R.string.cue_badge_close_desc
             else R.string.cue_badge_open_desc,
             lastCueNumber,
         )
+    }
+
+    /**
+     * Denyut halus satu kali saat cue baru terekam: penanda bahwa
+     * perekaman hidup, tanpa menampilkan angka yang mengganggu fokus.
+     */
+    private fun pulseCueBadge() {
+        val badge = binding.cueBadge
+        badge.animate().cancel()
+        badge.alpha = CUE_BADGE_ALPHA
+        badge.scaleX = 1f
+        badge.scaleY = 1f
+        badge.animate()
+            .alpha(0.95f)
+            .scaleX(1.1f)
+            .scaleY(1.1f)
+            .setDuration(110)
+            .withEndAction {
+                if (!inFullscreen || binding.cueOverlay.visibility != View.VISIBLE) {
+                    return@withEndAction
+                }
+                badge.animate()
+                    .alpha(if (cuePreviewExpanded) 1f else CUE_BADGE_ALPHA)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(240)
+                    .start()
+            }
+            .start()
     }
 
     /**
@@ -1437,6 +1549,16 @@ class MainActivity : AppCompatActivity() {
     private fun setCuePreviewExpanded(expanded: Boolean) {
         if (cuePreviewExpanded == expanded) return
         cuePreviewExpanded = expanded
+
+        // Badge menjadi terang saat kartu terbuka dan kembali redup saat
+        // ditutup, supaya pojok video tetap tenang selama menonton.
+        binding.cueBadge.animate().cancel()
+        binding.cueBadge.scaleX = 1f
+        binding.cueBadge.scaleY = 1f
+        binding.cueBadge.animate()
+            .alpha(if (expanded) 1f else CUE_BADGE_ALPHA)
+            .setDuration(140)
+            .start()
 
         val card = binding.cuePreviewCard
         card.animate().cancel()
@@ -1526,6 +1648,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val POLL_MS = 100L
         const val JUMP_STATUS_HIDE_MS = 1600L
+        const val CUE_BADGE_ALPHA = 0.45f
         const val START_URL = "https://viu.com"
         const val KEY_KEEP_SCREEN = "keep_screen_on"
         const val EXTRA_TITLE = "episode_title"

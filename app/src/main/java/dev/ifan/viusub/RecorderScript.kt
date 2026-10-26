@@ -64,6 +64,7 @@ object RecorderScript {
   var INITIAL_GRACE = 10;     // detik awal yang dianggap utuh
   var MIN_GAP = 2.0;          // lompatan di bawah ini bukan celah
   var MAX_STEP = 3.0;         // detik tanpa event yang dianggap lompatan
+  var RESET_HOLD_MS = 15000;  // penahan rekam setelah Reset, batas aman
 
   // Penghitung kenapa sebuah kandidat ditolak. Direset tiap scan, jadi
   // angkanya menggambarkan kondisi terkini. Dipakai untuk memastikan filter
@@ -85,6 +86,11 @@ object RecorderScript {
   // yang sama tidak boleh dicatat sebagai cue baru di posisi tujuan.
   // Penahan dilepas begitu overlay benar-benar berganti atau menghilang.
   var staleTexts = null;
+
+  // Setelah Reset, perekam berhenti mengumpulkan cue sampai seek ke awal
+  // benar-benar dikirim. Tanpa penahan ini, subtitle di posisi lama bisa
+  // tercatat sebagai cue baru selama controller menunggu pemutar siap.
+  var resetHoldUntil = 0;
 
   // Pause manual adalah keputusan pengguna dan harus menang atas pemulihan
   // otomatis. Flag ini membedakan pause pengguna dari pause sementara yang
@@ -404,20 +410,29 @@ object RecorderScript {
     seekingTracked = false;
     seekingFrom = -1;
     seekStartedAt = 0;
+    resetHoldUntil = 0;
   }
 
   /**
-   * Reset tombol Reset: rekaman baru dimulai dari posisi sekarang.
-   * Rentang sebelum posisi ini sengaja dianggap "sudah dilihat" supaya
-   * nomor cue mulai lagi dari 1, bukan langsung menjadi belum bernomor.
+   * Baseline baru untuk tombol Reset. Tombol Reset sekarang selalu
+   * mengembalikan video ke awal lewat controller, jadi [at] diisi 0:
+   * tidak ada rentang yang dianggap sudah dilihat dan nomor cue mulai
+   * lagi dari 1.
+   *
+   * scanAt sengaja -1 saat mulai dari 0. Seek ke awal baru dikirim
+   * setelah fungsi ini (lewat PlaybackJumpController), dan scan yang
+   * masih di posisi lama tidak boleh dianggap lompatan jauh yang
+   * menciptakan celah palsu.
    */
-  function resetCoverageBaseline() {
+  function resetCoverageBaseline(at) {
     var v = getVideo();
-    var t = v && isFinite(v.currentTime) ? Math.max(0, v.currentTime) : 0;
+    var t = (typeof at === 'number' && isFinite(at))
+      ? Math.max(0, at)
+      : (v && isFinite(v.currentTime) ? Math.max(0, v.currentTime) : 0);
     watchedRanges = t > 0 ? [{ a: 0, b: t }] : [];
     holes = [];
     scanStarted = true;
-    scanAt = t;
+    scanAt = t > 0 ? t : -1;
     seekingTracked = false;
     seekingFrom = -1;
     seekStartedAt = 0;
@@ -441,6 +456,8 @@ object RecorderScript {
    * pemutaran normal dan menutup celah yang seharusnya tetap terbuka.
    */
   function beginAppSeek(v) {
+    // Seek sungguhan sudah dikirim; penahan setelah Reset boleh dilepas.
+    resetHoldUntil = 0;
     if (!seekingTracked) {
       seekingTracked = true;
       seekingFrom = (v && isFinite(v.currentTime)) ? v.currentTime : lastTime;
@@ -475,6 +492,17 @@ object RecorderScript {
     var now = v.currentTime;
     if (!now) return;
     lastTime = now;
+
+    // Reset sudah mengosongkan rekaman; jangan mulai mengumpulkan lagi
+    // selama seek ke awal belum dikirim. Tanpa ini, subtitle yang tampil
+    // di posisi lama saat controller menunggu bisa masuk sebagai cue baru.
+    if (resetHoldUntil) {
+      if (Date.now() < resetHoldUntil) {
+        scanAt = now;
+        return;
+      }
+      resetHoldUntil = 0;
+    }
 
     // Event seeked bisa hilang kalau Bitmovin memuat ulang player. Setelah
     // 1,5 detik dan posisi benar-benar bergerak, tutup pencatatan seek
@@ -1304,6 +1332,7 @@ object RecorderScript {
         // Tap berulang pada baris yang sama juga harus memulihkan video
         // yang sudah beku, jadi buka jendela pemulihan walau currentTime
         // tidak berubah.
+        resetHoldUntil = 0;
         armUserSeek(Date.now());
         beginJumpRecovery(v);
         return JSON.stringify({
@@ -1486,6 +1515,17 @@ object RecorderScript {
       });
     },
     reset: function () {
+      // Overlay subtitle dari posisi lama bisa masih tampil beberapa saat
+      // setelah reset. Tandai teksnya sebagai basi supaya scan di awal
+      // video tidak mencatatnya sebagai cue baru di detik 0.
+      var stale = null;
+      live.forEach(function (rec) {
+        if (!stale) stale = new Set();
+        stale.add(rec.text);
+      });
+      staleTexts = stale;
+      // Jangan rekam apa pun sampai seek ke awal benar-benar dikirim.
+      resetHoldUntil = Date.now() + RESET_HOLD_MS;
       cues.length = 0;
       live.clear();
       statCache.at = 0;
@@ -1505,7 +1545,8 @@ object RecorderScript {
       seekRecovery.lastPlay = 0;
       seekRecovery.video = null;
       replayCache = {};
-      resetCoverageBaseline();
+      // Reset selalu memulai rekaman baru dari awal video.
+      resetCoverageBaseline(0);
       return true;
     }
   };

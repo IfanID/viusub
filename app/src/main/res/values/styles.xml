@@ -34,4 +34,33 @@
         <item name="android:background">@drawable/bg_button_danger</item>
         <item name="android:textColor">@color/provisional_mark</item>
     </style>
+
+    <!-- Tombol dialog memakai bahasa visual panel: tanpa huruf kapital
+         paksa, teks medium, dan warna aksen/sekunder dari tema aplikasi. -->
+    <style name="Widget.ViuSub.DialogButton" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+    </style>
+
+    <style name="Widget.ViuSub.DialogButton.Accent" parent="Widget.ViuSub.DialogButton">
+        <item name="android:textColor">@color/panel_accent</item>
+    </style>
+
+    <!-- Judul dialog memakai warna teks panel, bukan putih standar. -->
+    <style name="TextAppearance.ViuSub.DialogTitle" parent="TextAppearance.AppCompat.Title">
+        <item name="android:textColor">@color/panel_text</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <style name="Widget.ViuSub.DialogTitle" parent="android:Widget">
+        <item name="android:textAppearance">@style/TextAppearance.ViuSub.DialogTitle</item>
+        <item name="android:maxLines">2</item>
+    </style>
 </resources>

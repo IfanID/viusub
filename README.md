@@ -133,6 +133,10 @@ terpisah.
   Pilih Folder, Reset, Status, dan centang "Layar tetap nyala". Tombol
   Status membuka dialog berisi diagnostik lengkap (posisi, cakupan,
   lubang, dan ringkasan filter) — tidak lagi memenuhi layar utama.
+  Dialog Reset, Status, dan peringatan celah memakai permukaan gelap,
+  label monospace, serta tombol pil yang sama dengan panel kontrol;
+  lebarnya dibatasi 90% layar (maksimal 420dp) supaya tidak melar
+  mengikuti teks diagnostik.
 - **Panel transkrip** di bawah bar mengisi sisa area hitam: strip statistik
   (jumlah cue, cue live, cakupan, lubang, posisi/durasi) dan **semua cue yang
   sudah terekam** dengan **urutan terbalik** — cue terbaru (dan cue live) di
@@ -244,14 +248,16 @@ terpisah.
   memperlihatkan pemain dalam tampilan yang sudah benar, tanpa menunggu
   video mulai diputar. Batas aman 20 detik; layar yang dibuka tanpa
   episode tidak memunculkan layar sapaan.
-- **Badge nomor cue** di pojok kiri atas berisi jumlah cue yang sudah
-  terekam. Hanya tampil saat video **fullscreen**; di tampilan biasa
-  disembunyikan supaya pojok layar bersih. Angka diambil dari `cueCount` di
-  payload penuh, bukan dari daftar yang dipangkas, jadi tidak pernah macet di
-  30. Ketuk badge untuk membuka **pratinjau cue** tepat di bawahnya; kartu
-  menampilkan nomor cue dan subtitle live yang sedang tampil, ikut berubah
-  selama terbuka, dan bisa ditutup dengan mengetuk badge atau kartunya.
-  Pratinjau selalu ditutup saat keluar dari fullscreen.
+- **Badge cue** di pojok kiri atas hanya tampil saat video **fullscreen**;
+  di tampilan biasa disembunyikan supaya pojok layar bersih. Badge tidak
+  memuat angka permanen: isinya ikon Cue Brackets ViuSub yang diredupkan
+  (~45%) agar tidak menarik perhatian saat menonton. Saat cue baru terekam,
+  ikon berdenyut halus sekali. Ketuk badge untuk membuka **pratinjau cue**
+  tepat di bawahnya; kartu menampilkan `CUE N · PRATINJAU` beserta subtitle
+  live yang sedang tampil, ikut berubah selama terbuka, dan bisa ditutup
+  dengan mengetuk badge atau kartunya. `cueCount` tetap diambil dari payload
+  penuh, bukan dari daftar yang dipangkas, jadi angkanya tidak pernah macet
+  di 30. Pratinjau selalu ditutup saat keluar dari fullscreen.
 - **Fullscreen** didukung lewat `WebChromeClient.onShowCustomView`. Tanpa itu,
   `requestFullscreen()` dari halaman ditolak diam-diam dan tombol fullscreen
   tidak berefek.
@@ -412,10 +418,11 @@ terbaca. Karena itu perekam melacak rentang video yang benar-benar ditonton
   detik sebelum awal celah supaya bisa diputar ulang. Nomor kembali otomatis
   setelah celah habis ditonton; mengisi sebagian atau melompat lagi tetap
   membiarkan tanda `?`.
-- Tombol Reset memulai baseline baru di posisi video saat itu: nomor cue
-  mulai lagi dari 1, bukan langsung menjadi belum bernomor. Kalau sudah ada
-  cue, Reset meminta konfirmasi lebih dulu supaya rekaman panjang tidak
-  terhapus karena satu ketukan.
+- Tombol Reset mengosongkan rekaman lalu mengembalikan video ke awal
+  (`00:00:00`) lewat pengatur lompatan yang sama dengan transkrip, jadi
+  video diputar lagi dari awal. Nomor cue mulai lagi dari 1 dan cakupan
+  dihitung dari nol. Kalau sudah ada cue, Reset meminta konfirmasi lebih
+  dulu supaya rekaman panjang tidak terhapus karena satu ketukan.
 - Garis lama "N cue baru sejak lompat ke …" tetap dipakai untuk lompatan yang
   tidak membuat celah; saat ada celah, baris celah yang tampil.
 

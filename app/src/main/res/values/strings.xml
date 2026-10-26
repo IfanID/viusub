@@ -36,13 +36,18 @@
     <string name="btn_info">Status</string>
 
     <string name="reset_confirm_title">Reset rekaman?</string>
-    <string name="reset_confirm_message">Semua cue yang sudah terekam akan dihapus dan penomoran mulai lagi dari posisi video sekarang. Tindakan ini tidak bisa dibatalkan.</string>
+    <string name="reset_confirm_message">Semua cue yang sudah terekam akan dihapus, video kembali ke awal (00:00:00), dan penomoran mulai lagi dari 1. Tindakan ini tidak bisa dibatalkan.</string>
     <string name="reset_confirm_positive">Reset</string>
+    <string name="dialog_cancel">Batal</string>
+    <string name="dialog_reset_eyebrow">KONFIRMASI · RESET</string>
+    <string name="dialog_export_eyebrow">EKSPOR · PERINGATAN</string>
+    <string name="dialog_status_eyebrow">DIAGNOSTIK · PEREKAM</string>
 
     <string name="chk_keep_screen_on">Layar tetap nyala saat merekam</string>
 
     <string name="panel_idle">Menunggu subtitle…</string>
-    <string name="cue_preview_label">PRATINJAU SUBTITLE</string>
+    <string name="cue_preview_label">CUE %1$d · PRATINJAU</string>
+    <string name="cue_preview_close_hint">KETUK UNTUK TUTUP</string>
     <string name="cue_preview_waiting">Menunggu subtitle…</string>
     <string name="cue_badge_open_desc">Cue %1$d. Ketuk untuk membuka pratinjau subtitle.</string>
     <string name="cue_badge_close_desc">Cue %1$d. Ketuk untuk menutup pratinjau subtitle.</string>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Segitiga peringatan untuk dialog Reset dan ekspor bercelah. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@color/provisional_mark"
+        android:pathData="M12,2L1,21h22L12,2z" />
+    <path
+        android:fillColor="@color/surface"
+        android:pathData="M11,9h2v7h-2zM11,17.5h2v2h-2z" />
+</vector>

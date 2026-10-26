@@ -90,6 +90,30 @@ object PayloadFormatter {
         }
     }
 
+    /**
+     * Waktu jam penuh HH:MM:SS untuk kartu statistik.
+     *
+     * Nilai dari halaman membawa milidetik ("00:00:00.000"); itu hanya
+     * menambah lebar tanpa berguna di baris POSISI, jadi dibuang di sini.
+     * Berbeda dari [clock], jam selalu ditampilkan walau durasinya di bawah
+     * satu jam supaya kolom posisi/total/sisa tidak berubah lebar.
+     */
+    fun fullClock(value: String?): String {
+        val parts = value?.split(':') ?: return "--:--:--"
+        if (parts.size != 3) return "--:--:--"
+        val h = parts[0].toDoubleOrNull() ?: return "--:--:--"
+        val m = parts[1].toDoubleOrNull() ?: return "--:--:--"
+        val s = parts[2].toDoubleOrNull() ?: return "--:--:--"
+        val total = (h * 3600 + m * 60 + s).toInt().coerceAtLeast(0)
+        return String.format(
+            Locale.US,
+            "%02d:%02d:%02d",
+            total / 3600,
+            (total % 3600) / 60,
+            total % 60,
+        )
+    }
+
     fun preview(p: VtrPayload): String {
         val lines = mutableListOf<String>()
 

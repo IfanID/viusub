@@ -25,6 +25,27 @@
     </style>
 
     <!--
+      Dialog konfirmasi Reset, peringatan celah, dan Status memakai
+      permukaan gelap yang sama dengan kartu aplikasi. Tanpa tema ini
+      AlertDialog memakai abu-abu bawaan AppCompat sehingga terlihat
+      seperti aplikasi lain.
+    -->
+    <style name="Theme.ViuSub.Dialog" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/bg_dialog</item>
+        <item name="android:backgroundDimAmount">0.72</item>
+        <item name="android:textColorPrimary">@color/panel_text</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorAlertDialogListItem">@color/panel_text</item>
+        <item name="android:windowTitleStyle">@style/Widget.ViuSub.DialogTitle</item>
+        <item name="colorAccent">@color/panel_accent</item>
+        <item name="android:colorAccent">@color/panel_accent</item>
+        <item name="colorControlActivated">@color/panel_accent</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.ViuSub.DialogButton.Accent</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.ViuSub.DialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.ViuSub.DialogButton</item>
+    </style>
+
+    <!--
       Splash bawaan Android 12+. Ikon peluncur dipakai lagi di sini supaya
       transisi dari ikon ke layar Home terasa satu identitas. Latar ikon
       dibuat sama dengan latar splash agar tidak muncul lingkaran berbeda.
