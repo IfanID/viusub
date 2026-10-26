@@ -55,14 +55,28 @@ object SrtWriter {
         "${baseName(payload, override)}.json"
 
     /**
+     * Jumlah baris yang benar-benar akan ditulis ke SRT: cue bernomor
+     * ditambah cue live yang juga sudah bernomor. Dipakai penjaga ekspor
+     * supaya sesi yang hanya berisi cue "?" tidak menghasilkan file kosong.
+     */
+    fun numberedCount(payload: VtrPayload): Int =
+        payload.cues.count { !it.provisional } +
+            payload.pendingCues.count { !it.replay && !it.provisional }
+
+    /**
      * Pemisah antar blok adalah "\n", bukan "\n\n", karena tiap blok sudah
      * diakhiri "\n". Hasilnya satu baris kosong di antara blok, sama seperti
      * file yang dihasilkan userscript. Kalau dipisah "\n\n" akan muncul dua
      * baris kosong dan sebagian parser SRT menolak filenya.
+     *
+     * Hanya cue bernomor yang ditulis. Cue bertanda "?" berasal dari celah
+     * yang belum ditonton: nomornya belum sah, dan SRT tidak punya cara
+     * menandai nomor yang belum pasti. Cue tersebut tetap tersimpan di JSON
+     * (`unverifiedCues`). Nomor blok ditulis ulang 1..N agar selalu rapat.
      */
     fun build(payload: VtrPayload): String {
         val entries = mutableListOf<VtrPayload.Cue>()
-        entries.addAll(payload.cues)
+        entries.addAll(payload.cues.filterNot { it.provisional })
 
         // Cue yang sedang tampil tidak pernah masuk payload.cues; ia hanya
         // ada di pendingCues sampai subtitle hilang dari layar. Tanpa bagian
@@ -76,23 +90,25 @@ object SrtWriter {
         // melewati start, cue dilewati karena durasinya tidak valid.
         val position = payload.position
         if (!position.isNullOrBlank()) {
-            payload.pendingCues.filterNot { it.replay }.forEachIndexed { i, pending ->
-                if (position > pending.start) {
-                    entries.add(
-                        VtrPayload.Cue(
-                            index = payload.cues.size + i + 1,
-                            start = pending.start,
-                            end = position,
-                            duration = "",
-                            text = pending.text,
-                        ),
-                    )
+            payload.pendingCues
+                .filterNot { it.replay || it.provisional }
+                .forEach { pending ->
+                    if (position > pending.start) {
+                        entries.add(
+                            VtrPayload.Cue(
+                                index = 0,
+                                start = pending.start,
+                                end = position,
+                                duration = "",
+                                text = pending.text,
+                            ),
+                        )
+                    }
                 }
-            }
         }
 
-        return entries.joinToString("\n") { cue ->
-            "${cue.index}\n${toSrtTime(cue.start)} --> ${toSrtTime(cue.end)}\n${cue.text}\n"
-        }
+        return entries.mapIndexed { i, cue ->
+            "${i + 1}\n${toSrtTime(cue.start)} --> ${toSrtTime(cue.end)}\n${cue.text}\n"
+        }.joinToString("\n")
     }
 }

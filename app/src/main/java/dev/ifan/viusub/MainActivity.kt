@@ -68,6 +68,9 @@ class MainActivity : AppCompatActivity() {
     private var lastPayload: VtrPayload? = null
     private var folderUri: Uri? = null
 
+    /** Waktu pesan "sesi selesai" terakhir tampil; mencegah spam navigasi. */
+    private var finishNoticeAt = 0L
+
     /** Ekspor yang menunggu folder dipilih; dilanjutkan otomatis setelahnya. */
     private enum class ExportKind { JSON, SRT }
     private var pendingExport: ExportKind? = null
@@ -429,6 +432,11 @@ class MainActivity : AppCompatActivity() {
                 // Rekaman halaman lama tidak boleh tercampur dengan halaman
                 // baru yang indeks cue-nya mulai dari 1 lagi.
                 invalidateFullTranscript()
+                // Status "sesi selesai" milik halaman lama juga tidak boleh
+                // terbawa: kalau tidak, navigasi pertama halaman baru bisa
+                // ditahan oleh penjaga perpindahan episode.
+                lastPayload = null
+                finishNoticeAt = 0L
                 // Skrip dipasang sedini mungkin supaya dokumen mana pun —
                 // termasuk hasil redirect di tengah-tengah muatan — langsung
                 // dipandu sejak awal; guard di kedua skrip membuat pemasangan
@@ -447,7 +455,12 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 val url = request.url
                 val isWeb = url.scheme == "http" || url.scheme == "https"
-                if (isWeb) return false
+                if (isWeb) {
+                    // Episode berikutnya tidak boleh jalan sendiri setelah
+                    // tayangan selesai: itu menghapus rekaman.
+                    if (blocksEpisodeSwitch(request)) return true
+                    return false
+                }
 
                 // mailto:, tel:, whatsapp:, intent: ... -> serahkan ke app lain
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, url)) }
@@ -825,7 +838,9 @@ class MainActivity : AppCompatActivity() {
         val coverage = payload.coveragePercent?.toFloatOrNull()?.coerceIn(0f, 100f) ?: 0f
         val tertiary = ContextCompat.getColor(this, R.color.text_tertiary)
 
-        binding.statCueValue.text = payload.cueCount.toString()
+        // Yang dihitung hanya cue bernomor. Baris bertanda "?" tetap ada di
+        // transkrip dan tetap ikut JSON, tetapi bukan cue yang sah.
+        binding.statCueValue.text = payload.numberedCount.toString()
         binding.statLiveValue.text = liveCount.toString()
         binding.statReplayValue.text = replayCount.toString()
         binding.statCoverageValue.text =
@@ -851,7 +866,7 @@ class MainActivity : AppCompatActivity() {
             ),
         )
         binding.statCueValue.setTextColor(
-            if (payload.cueCount > 0) {
+            if (payload.numberedCount > 0) {
                 ContextCompat.getColor(this, R.color.panel_text)
             } else {
                 tertiary
@@ -1045,6 +1060,7 @@ class MainActivity : AppCompatActivity() {
             PlaybackJumpController.Phase.FAILED -> when (state.reason) {
                 "stalled" -> getString(R.string.msg_seek_stalled)
                 "timeout" -> getString(R.string.msg_seek_timeout)
+                "finished" -> getString(R.string.msg_session_finished)
                 else -> getString(R.string.msg_seek_failed)
             }
             PlaybackJumpController.Phase.IDLE -> ""
@@ -1092,7 +1108,10 @@ class MainActivity : AppCompatActivity() {
                 binding.jumpStatusClose.visibility = View.VISIBLE
             }
             PlaybackJumpController.Phase.FAILED -> {
-                binding.jumpStatusAction.visibility = View.VISIBLE
+                // "finished" bukan kegagalan sementara: halaman sudah
+                // pindah episode, jadi tidak ada yang bisa dicoba ulang.
+                binding.jumpStatusAction.visibility =
+                    if (state.reason == "finished") View.GONE else View.VISIBLE
                 binding.jumpStatusAction.text =
                     getString(R.string.jump_action_retry)
                 binding.jumpStatusClose.visibility = View.VISIBLE
@@ -1164,6 +1183,64 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Menahan perpindahan episode setelah tayangan selesai.
+     *
+     * Penjagaan saat masih menonton dilakukan di dalam halaman (lihat
+     * RecorderScript): kartu "Selanjutnya" ditutup dan `router.push` +
+     * `loadVod` ditahan. Lapisan ini hanya jaring terakhir, dan sengaja
+     * TIDAK aktif selama halaman dimuat: Viu mengalihkan product_id API
+     * (`2521061`) ke halaman kanonik (`2521056`) lewat redirect, dan
+     * keduanya episode yang sama. Membandingkan productId sebelum halaman
+     * selesai memuat akan memblokir redirect itu dan meninggalkan layar
+     * kosong.
+     *
+     * Selama sesi belum selesai, pindah episode yang disengaja tetap bisa
+     * lewat daftar di Home, yang memuat halaman baru.
+     */
+    private fun blocksEpisodeSwitch(request: WebResourceRequest): Boolean {
+        if (!request.isForMainFrame) return false
+        if (lastPayload?.finished != true) return false
+        // Redirect server bukan perpindahan episode: Viu mengalihkan
+        // product_id API ke halaman kanonik episode yang sama. Menahannya
+        // membuat halaman tidak pernah termuat.
+        if (request.isRedirect) return false
+
+        val target = request.url
+        if (!isVodUrl(target)) return false
+        val current = binding.webView.url?.let(Uri::parse) ?: return false
+        if (!isVodUrl(current)) return false
+
+        // Status "selesai" hanya berlaku untuk halaman yang melaporkannya.
+        // Tanpa ini, sisa payload halaman lama bisa menahan navigasi pertama
+        // halaman baru dan meninggalkan layar kosong.
+        val knownPath = lastPayload?.source
+            ?.let { runCatching { Uri.parse(it).path }.getOrNull() }
+        if (knownPath == null || knownPath != current.path) return false
+
+        val from = vodProductId(current)
+        val to = vodProductId(target)
+        if (from.isEmpty() || to.isEmpty()) return false
+        if (from == to) return false
+        if (current.path == target.path) return false
+
+        val now = System.currentTimeMillis()
+        if (now - finishNoticeAt > 3000) {
+            finishNoticeAt = now
+            announce(getString(R.string.msg_session_finished), error = true)
+        }
+        return true
+    }
+
+    /** Segmen `<productId>` pada path `/vod/<productId>/...`. */
+    private fun vodProductId(uri: Uri): String {
+        val parts = uri.pathSegments
+        val at = parts.indexOf("vod")
+        return if (at >= 0 && at + 1 < parts.size) parts[at + 1] else ""
+    }
+
+    private fun isVodUrl(uri: Uri): Boolean = uri.path?.contains("/vod/") == true
+
+    /**
      * Memasang skrip ke halaman: perekam subtitle dan mode "hanya pemain".
      * Aman dipanggil berulang: keduanya punya guard di awal skrip yang
      * keluar kalau penandanya sudah ada.
@@ -1219,10 +1296,13 @@ class MainActivity : AppCompatActivity() {
             }
             val p = payload
             val text = json
-            confirmGapExport(p) {
+            confirmGapExport(p, forSrt = false) {
                 announce(getString(R.string.msg_saving_json))
                 val name = SrtWriter.jsonFileName(p, episodeTitle)
-                val error = ExportStore.writeJson(this, tree, name, prettyPrint(text))
+                // Cue bertanda "?" tetap disimpan, tetapi di luar `cues`
+                // dan tanpa nomor.
+                val body = ExportJson.build(text)
+                val error = ExportStore.writeJson(this, tree, name, prettyPrint(body))
                 if (error == null) {
                     say(getString(R.string.msg_saved, name))
                     announce(getString(R.string.msg_saved, name))
@@ -1244,15 +1324,22 @@ class MainActivity : AppCompatActivity() {
             return
         }
         withFullPayload { _, payload ->
-            if (payload == null ||
-                (payload.cues.isEmpty() && payload.pendingCues.isEmpty())
-            ) {
+            if (payload == null) {
                 say(getString(R.string.msg_nothing))
                 announce(getString(R.string.msg_nothing), error = true)
                 return@withFullPayload
             }
             val p = payload
-            confirmGapExport(p) {
+            // SRT hanya memuat cue bernomor. Kalau sesi belum punya satu pun
+            // (mis. langsung lompat ke ujung lalu merekam), file tidak dibuat
+            // supaya tidak ada SRT kosong yang membingungkan.
+            if (SrtWriter.numberedCount(p) == 0) {
+                val message = getString(R.string.msg_srt_unverified_only)
+                say(message)
+                announce(message, error = true)
+                return@withFullPayload
+            }
+            confirmGapExport(p, forSrt = true) {
                 announce(getString(R.string.msg_saving_srt))
                 val name = SrtWriter.fileName(p, episodeTitle)
                 val error = ExportStore.writeSrt(this, tree, name, SrtWriter.build(p))
@@ -1269,10 +1356,10 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Ekspor tetap diizinkan walau ada celah, tetapi diberi peringatan.
-     * SRT selalu bernomor 1..N (syarat format); nomor cue di JSON dan di
-     * layar bisa berbeda selama celah belum ditonton.
+     * SRT hanya memuat cue bernomor; cue bertanda "?" tetap disimpan di
+     * JSON sebagai `unverifiedCues`.
      */
-    private fun confirmGapExport(payload: VtrPayload, proceed: () -> Unit) {
+    private fun confirmGapExport(payload: VtrPayload, forSrt: Boolean, proceed: () -> Unit) {
         val hole = payload.holes.firstOrNull()
         if (hole == null) {
             proceed()
@@ -1280,10 +1367,16 @@ class MainActivity : AppCompatActivity() {
         }
         val from = PayloadFormatter.clock(hole.from)
         val to = PayloadFormatter.clock(hole.to)
-        val message = if (payload.provisionalCount > 0) {
-            getString(R.string.export_gap_message, from, to, payload.provisionalCount)
-        } else {
-            getString(R.string.export_gap_message_empty, from, to)
+        val message = when {
+            forSrt && payload.provisionalCount > 0 -> getString(
+                R.string.export_gap_message_srt,
+                from,
+                to,
+                payload.provisionalCount,
+            )
+            payload.provisionalCount > 0 ->
+                getString(R.string.export_gap_message, from, to, payload.provisionalCount)
+            else -> getString(R.string.export_gap_message_empty, from, to)
         }
         showConfirmDialog(
             eyebrow = getString(R.string.dialog_export_eyebrow),
@@ -1420,9 +1513,9 @@ class MainActivity : AppCompatActivity() {
             showEpisodeTitle(FileNames.sanitize(payload.title))
         }
 
-        updateCueBadge(payload.cueCount)
+        updateCueBadge(payload.numberedCount)
 
-        val line = PayloadFormatter.liveLine(payload)
+        val line = PayloadFormatter.liveLine(payload, getString(R.string.panel_finished))
         if (line != lastRenderedLine) {
             lastRenderedLine = line
             binding.liveText.text = line.ifBlank { getString(R.string.panel_idle) }

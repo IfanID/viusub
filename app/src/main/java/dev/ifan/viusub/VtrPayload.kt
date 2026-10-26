@@ -20,6 +20,12 @@ data class VtrPayload(
     val total: String?,
     val remaining: String?,
     val cueCount: Int,
+    /**
+     * Cue yang nomornya sah, yaitu yang terekam sebelum celah pertama yang
+     * belum ditonton. Kotak CUE, badge, dan isi SRT memakai angka ini;
+     * `cueCount` tetap jumlah seluruh baris terekam.
+     */
+    val numberedCount: Int = 0,
     val pending: Int,
     val coveragePercent: String?,
     val covered: String?,
@@ -37,6 +43,30 @@ data class VtrPayload(
      */
     val holes: List<Hole>,
     val provisionalCount: Int,
+    /**
+     * Sesi tayangan sudah mencapai akhir. Selama true, perekam membekukan
+     * transkrip, menahan perpindahan ke episode berikutnya, dan membekukan
+     * statistik di nilai akhir. Video yang sama tetap bisa diputar ulang;
+     * Reset memulai sesi baru.
+     */
+    val finished: Boolean = false,
+    /**
+     * Sudah masuk detik-detik akhir episode. Playback belum berhenti, tetapi
+     * perpindahan ke episode berikutnya sudah ditahan supaya rekaman tidak
+     * hilang saat Viu bernavigasi sedikit sebelum `ended`.
+     */
+    val nearEnd: Boolean = false,
+    /**
+     * Berapa kali kartu "Selanjutnya" milik Viu ditutup otomatis. Kartu
+     * muncul di titik kredit (sekitar satu menit sebelum akhir) dan punya
+     * hitungan yang berakhir dengan memuat episode berikutnya.
+     */
+    val autoNextDismissed: Int = 0,
+    /**
+     * Berapa kali perpindahan ke episode lain ditahan. Nol berarti Viu
+     * tidak pernah mencoba pindah; lebih dari nol berarti penjaga bekerja.
+     */
+    val autoNextBlocked: Int = 0,
 ) {
     /** Celah rekaman dalam bentuk waktu dan durasi detik. */
     data class Hole(
@@ -100,6 +130,12 @@ data class VtrPayload(
                     total = root.optString("total").takeIf { it.isNotBlank() },
                     remaining = root.optString("remaining").takeIf { it.isNotBlank() },
                     cueCount = root.optInt("cueCount", 0),
+                    // Halaman lama belum mengirim field ini. Pakai cueCount
+                    // supaya hitungan tidak mendadak jadi nol.
+                    numberedCount = root.optInt(
+                        "numberedCount",
+                        root.optInt("cueCount", 0),
+                    ),
                     pending = root.optInt("pending", 0),
                     coveragePercent = coverage?.optString("percent")?.takeIf { it.isNotBlank() },
                     covered = coverage?.optString("covered")?.takeIf { it.isNotBlank() },
@@ -126,6 +162,10 @@ data class VtrPayload(
                     pendingCues = parseCues(root.optJSONArray("pendingCues")),
                     holes = parseHoles(root.optJSONArray("holes")),
                     provisionalCount = root.optInt("provisionalCount", 0),
+                    finished = root.optBoolean("finished", false),
+                    nearEnd = root.optBoolean("nearEnd", false),
+                    autoNextDismissed = root.optInt("autoNextDismissed", 0),
+                    autoNextBlocked = root.optInt("autoNextBlocked", 0),
                 )
             } catch (e: Exception) {
                 null

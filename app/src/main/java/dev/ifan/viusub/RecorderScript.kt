@@ -35,7 +35,7 @@ object RecorderScript {
     private const val PREVIEW_MAX = 30
 
     /** Dipasang lewat evaluateJavascript setiap kali halaman selesai dimuat. */
-    const val SOURCE = """
+    const val SOURCE_HEAD = """
 (function () {
   'use strict';
   if (window.ViuSubRecorder) return;
@@ -65,6 +65,8 @@ object RecorderScript {
   var MIN_GAP = 2.0;          // lompatan di bawah ini bukan celah
   var MAX_STEP = 3.0;         // detik tanpa event yang dianggap lompatan
   var RESET_HOLD_MS = 15000;  // penahan rekam setelah Reset, batas aman
+  var AD_MAX = 120;           // di bawah ini iklan/pratinjau, bukan episode
+  var END_WINDOW = 8;         // detik akhir: blokir pindah episode lebih awal
 
   // Penghitung kenapa sebuah kandidat ditolak. Direset tiap scan, jadi
   // angkanya menggambarkan kondisi terkini. Dipakai untuk memastikan filter
@@ -91,6 +93,55 @@ object RecorderScript {
   // benar-benar dikirim. Tanpa penahan ini, subtitle di posisi lama bisa
   // tercatat sebagai cue baru selama controller menunggu pemutar siap.
   var resetHoldUntil = 0;
+
+  // ---- akhir tayangan -------------------------------------------------
+  // Saat video mencapai akhir, Viu memutar episode berikutnya. Halaman baru
+  // berarti rekaman lama hilang: cue dikosongkan dan penomoran mulai dari 1
+  // lagi. Supaya itu tidak terjadi, sesi ditandai selesai tepat pada event
+  // `ended`, lalu perpindahan episode ditahan sampai pengguna memutar ulang
+  // video yang sama atau menekan Reset.
+  var finished = false;
+  var finishedPath = '';
+  var finishedSrc = '';
+  var finishedTail = 0;
+  var finishedSnapshot = null;  // { source, title, total }
+  var navGuardInstalled = false;
+  // Identitas sesi memakai elemen dan sumber video, BUKAN durasi. Episode
+  // berurutan bisa berdurasi hampir sama; membandingkan durasi membuat
+  // episode berikutnya dianggap "video yang sama" lalu dibiarkan berjalan.
+  var finishedEl = null;
+  // Delapan detik terakhir: perpindahan episode sudah ditahan, tetapi video
+  // TIDAK dijeda. Snapshot di sini adalah sumber kebenaran saat `ended`
+  // datang, supaya sumber episode berikutnya tidak pernah menimpanya.
+  var nearEnd = false;
+  var nearEndSrc = '';
+  var nearEndTail = 0;
+  var nearEndPath = '';
+  var nearEndTitle = '';
+  var nearEndEl = null;
+  // Waktu terakhir kunci selesai dilepas. Pemutar kadang masih melaporkan
+  // ended selama beberapa milidetik setelah play() memutar ulang; tanpa ini
+  // sesi bisa langsung terkunci lagi.
+  var releasedAt = 0;
+
+  // ---- penjaga auto-next Viu -------------------------------------------
+  // Kartu "Selanjutnya" tidak muncul di detik-detik terakhir. Viu memakai
+  // `skip_outro_start_time` dari data produk (episode 726: detik 5518 dari
+  // durasi 5576), lalu setelah hitungan 5 detik memanggil
+  // `router.push(url episode berikutnya)` dan `loadVod(id berikutnya)`.
+  // Penjaga delapan detik terakhir selalu terlambat hampir satu menit,
+  // jadi perpindahan episode ditahan sejak video benar-benar diputar.
+  var AUTO_NEXT_CARD = '[data-autoid="auto_next_episode_dismiss_button"]';
+  var AUTO_NEXT_CLICK_MS = 250;   // jarak antar-klik selama kartu muncul
+  var autoNextDismissed = 0;      // berapa kali kartu ditutup
+  var autoNextBlocked = 0;        // berapa kali perpindahan episode ditahan
+  var autoNextClickAt = 0;
+  var autoNextScanAt = 0;         // pemindaian shadow DOM terakhir
+  var routerGuardInstalled = false;
+  // Path episode tempat sesi berjalan. Selama terisi, perpindahan ke
+  // `/vod/<id>/` lain ditahan; URL episode yang sama tetap boleh berubah
+  // (kanonik, slug, query) karena pemutar membutuhkannya.
+  var sessionPath = '';
 
   // Pause manual adalah keputusan pengguna dan harus menang atas pemulihan
   // otomatis. Flag ini membedakan pause pengguna dari pause sementara yang
@@ -487,6 +538,8 @@ object RecorderScript {
   }
 
   function scan() {
+    // Sesi selesai: tidak ada cue baru yang boleh masuk dari episode lain.
+    if (finished) return;
     var v = getVideo();
     if (!v) return;
     var now = v.currentTime;
@@ -706,6 +759,8 @@ object RecorderScript {
   }
 
   function watchSeekRecovery() {
+    // Setelah tayangan selesai, jangan pernah memanggil play() lagi.
+    if (finished) return;
     var v = getVideo();
     if (!v) return;
     var now = Date.now();
@@ -900,7 +955,24 @@ object RecorderScript {
     var out = [];
     var seenReplay = {};
     var lastNew = null;
-    var nextIndex = list.length + 1;
+    // Nomor cue live tidak boleh memakai "jumlah baris + 1". Setelah
+    // lompatan, jumlah baris jauh lebih besar daripada nomor waktunya:
+    // 18 cue di ujung episode membuat cue baru di detik 12 tampil sebagai
+    // 26, padahal posisinya ke-8. Nomor dihitung dari posisi waktu.
+    var newStarts = [];
+
+    function liveIndex(start) {
+      var n = 0, k;
+      for (k = 0; k < list.length; k++) {
+        // Toleransi kecil: cue yang baru saja ditutup di detik yang sama
+        // tetap dihitung sebagai pendahulu.
+        if (list[k].start < start - 0.05) n++;
+      }
+      for (k = 0; k < newStarts.length; k++) {
+        if (newStarts[k] < start - 0.05) n++;
+      }
+      return n + 1;
+    }
 
     for (var i = 0; i < items.length; i++) {
       var p = items[i];
@@ -951,12 +1023,13 @@ object RecorderScript {
 
         var parts = [{ t: p.text, y: (p.top || 0) }];
         var row = {
-          i: nextIndex++,
+          i: liveIndex(p.start),
           start: ts(p.start, '.'),
           provisional: provisional,
           text: p.text
         };
         out.push(row);
+        newStarts.push(p.start);
         lastNew = { start: p.start, row: row, parts: parts };
       }
     }
@@ -991,17 +1064,30 @@ object RecorderScript {
     var list = cues.slice().sort(function (a, b) { return a.start - b.start; });
     var hole = earliestHole();
     var pending = pendingPayload(list, hole);
-    var total = totalOf();
     var g = getVideo();
-    var pos = g ? g.currentTime : (list.length ? list[list.length - 1].end : 0);
+    var source = location.href;
+    var pageTitle = (typeof document !== 'undefined' && document.title) ? document.title : '';
+    var total, pos;
+    if (finished && finishedSnapshot) {
+      // Sesi selesai: statistik dibekukan di nilai akhir supaya tidak
+      // berubah jadi episode berikutnya yang mungkin sudah terpasang.
+      total = finishedSnapshot.total;
+      pos = total;
+      if (finishedSnapshot.source) source = finishedSnapshot.source;
+      if (finishedSnapshot.title) pageTitle = finishedSnapshot.title;
+    } else {
+      total = totalOf();
+      pos = g ? g.currentTime : (list.length ? list[list.length - 1].end : 0);
+    }
     var remaining = Math.max(0, total - pos);
     var st = stats();
     var gapList = st.gaps;
     var cov = st.covered;
     var provisionalCount = 0;
+    var numberedCount = 0;
     var mapped = list.map(function (c, i) {
       var provisional = !!hole && c.start >= hole.a;
-      if (provisional) provisionalCount++;
+      if (provisional) provisionalCount++; else numberedCount++;
       return {
         i: i + 1,
         start: ts(c.start, '.'),
@@ -1017,11 +1103,11 @@ object RecorderScript {
       if (pending[pi].provisional && !pending[pi].replay) provisionalCount++;
     }
     return {
-      source: location.href,
+      source: source,
       // Judul halaman dipakai untuk nama file ekspor. Isinya biasanya
       // "Running Man (2024) Episode 733｜Variety Show Korea｜Viu Indonesia";
       // pemotongan dan pembersihan dilakukan di sisi Kotlin.
-      title: (typeof document !== 'undefined' && document.title) ? document.title : '',
+      title: pageTitle,
       method: 'DOM span observer',
       capturedAt: new Date().toISOString(),
       position: ts(pos, '.'),
@@ -1045,8 +1131,23 @@ object RecorderScript {
         };
       }),
       provisionalCount: provisionalCount,
+      // Jumlah cue yang nomornya sah: seluruh cue sebelum celah pertama
+      // yang belum ditonton. Inilah yang dipakai kotak CUE, badge, dan
+      // isi berkas SRT; `cueCount` tetap total baris untuk logika internal.
+      numberedCount: numberedCount,
       cueCount: list.length,
       pending: pending.length,
+      // Sesi tayangan sudah habis. UI menampilkan pesan selesai dan tidak
+      // lagi menawarkan lompatan ke episode baru.
+      finished: finished,
+      // Sudah masuk detik-detik akhir. Belum selesai, tetapi perpindahan
+      // episode sudah ditahan supaya rekaman tidak hilang.
+      nearEnd: nearEnd,
+      // Diagnostik penjaga auto-next: berapa kali kartu "Selanjutnya"
+      // ditutup dan berapa kali perpindahan episode ditahan. Dipakai untuk
+      // memastikan penjaganya benar-benar bekerja di perangkat.
+      autoNextDismissed: autoNextDismissed,
+      autoNextBlocked: autoNextBlocked,
       // Selalu nol: perekam tidak lagi memulihkan simpanan lama, jadi
       // tidak ada sesi sebelumnya yang bisa dilanjutkan.
       resumedFrom: 0,
@@ -1061,9 +1162,464 @@ object RecorderScript {
     };
   }
 
+"""
+
+    private const val SOURCE_TAIL = """
+  // ---- penjaga akhir tayangan ----------------------------------------
+
+  function videoSrc(v) {
+    if (!v) return '';
+    var s = '';
+    try { s = v.currentSrc || v.src || ''; } catch (e) { s = ''; }
+    if (!s && v.querySelector) {
+      try {
+        var so = v.querySelector('source');
+        if (so) s = so.src || '';
+      } catch (e) {}
+    }
+    return s;
+  }
+
+  function isVodPath(path) {
+    return String(path || '').indexOf('/vod/') !== -1;
+  }
+
+  /**
+   * Apakah [v] masih video sesi yang sudah selesai.
+   *
+   * Identitasnya adalah SUMBER video, bukan durasi. Episode 726 dan 727
+   * bisa berdurasi hampir sama (mis. 1:32:57 vs 1:32:59); memakai durasi
+   * membuat episode berikutnya dianggap "video yang sama" lalu dibiarkan
+   * berjalan. Pemutar Bitmovin membuat URL `blob:` baru setiap kali sumber
+   * dimuat, jadi sumber yang berbeda selalu menandakan episode berbeda.
+   */
+  function sameSessionVideo(v) {
+    if (!v) return false;
+    var src = videoSrc(v);
+    if (finishedSrc) return src !== '' && src === finishedSrc;
+    return finishedEl != null && v === finishedEl && src === '';
+  }
+
+  /**
+   * Dipanggil tepat saat video mencapai akhir. Tidak ada detik yang
+   * dipotong: posisi akhir dicatat di durasi penuh, cue terakhir ditutup di
+   * titik itu, dan ekor video ikut dihitung sebagai cakupan.
+   */
+  function finishSession(v) {
+    if (finished) return;
+    // nearEndTail adalah durasi episode ini yang terbaca sebelum akhir;
+    // kalau halaman sempat berganti, durasi video baru tidak boleh dipakai.
+    var d = nearEndTail > 0
+      ? nearEndTail
+      : ((v && isFinite(v.duration) && v.duration > 0) ? v.duration : lastTime);
+    // Snapshot pra-akhir adalah sumber kebenaran. Jangan pernah menimpanya
+    // dengan sumber video saat ini: kalau Viu sudah memasang episode
+    // berikutnya, sumber itu justru yang harus dikenali sebagai asing.
+    if (!nearEndTail) nearEndTail = d;
+    if (!nearEndSrc) nearEndSrc = videoSrc(v);
+    if (!nearEndPath) nearEndPath = location.pathname;
+    if (!nearEndTitle) {
+      nearEndTitle = (typeof document !== 'undefined' && document.title) ? document.title : '';
+    }
+    if (!nearEndEl) nearEndEl = v;
+    finished = true;
+    nearEnd = true;
+    finishedPath = nearEndPath || location.pathname;
+    finishedSrc = nearEndSrc;
+    finishedEl = nearEndEl;
+    finishedTail = d;
+    finishedSnapshot = {
+      source: (nearEndPath && nearEndPath !== location.pathname)
+        ? (location.origin + nearEndPath)
+        : location.href,
+      title: nearEndTitle ||
+        ((typeof document !== 'undefined' && document.title) ? document.title : ''),
+      total: d
+    };
+    // Cue yang masih tampil ditutup di akhir video, bukan beberapa detik
+    // sebelumnya.
+    lastTime = d;
+    flushLive();
+    if (scanAt >= 0 && d > scanAt) {
+      noteWatched(scanAt, d);
+      shrinkHoles(scanAt, d);
+    }
+    scanAt = d;
+    statCache.at = 0;
+    // Pemberhentian ini milik skrip, bukan pause manual pengguna.
+    userPaused = false;
+    seekRecovery.playUntil = 0;
+    seekRecovery.at = 0;
+    seekRecovery.tries = 0;
+    suppressPauseUntil = Date.now() + 1500;
+    // Jangan biarkan episode berikutnya memutar dirinya sendiri.
+    var list = allVideos();
+    for (var i = 0; i < list.length; i++) {
+      try { list[i].autoplay = false; } catch (e) {}
+      try { list[i].removeAttribute('autoplay'); } catch (e) {}
+    }
+    try { if (v) v.pause(); } catch (e) {}
+    guardNavigation();
+  }
+
+  /**
+   * Melepas kunci selesai saat pengguna memutar ulang video yang sama.
+   * Rekaman lama tidak dihapus: cue yang tampil lagi dikenali findReplay
+   * sebagai cue ulang (↺) dan tidak diberi nomor baru.
+   */
+  function releaseFinished() {
+    if (!finished) return;
+    finished = false;
+    finishedPath = '';
+    finishedSrc = '';
+    finishedTail = 0;
+    finishedSnapshot = null;
+    finishedEl = null;
+    // Kunci "mendekati akhir" juga dilepas: pengguna sedang menonton ulang
+    // dari posisi lain, bukan di ujung video.
+    nearEnd = false;
+    nearEndSrc = '';
+    nearEndTail = 0;
+    nearEndPath = '';
+    nearEndTitle = '';
+    nearEndEl = null;
+    releasedAt = Date.now();
+    var v = getVideo();
+    if (v && isFinite(v.currentTime)) lastTime = v.currentTime;
+    statCache.at = 0;
+  }
+
+  /** productId dari path `/vod/<productId>/...`; kosong kalau bukan VOD. */
+  function vodProductId(path) {
+    var m = /\/vod\/([^\/?#]+)/.exec(String(path || ''));
+    return m ? m[1] : '';
+  }
+
+  /**
+   * Apakah [url] menuju episode lain.
+   *
+   * Hanya VOD→VOD dengan productId berbeda yang ditahan. Variasi path
+   * episode yang sama (URL kanonik, slug, query) tetap boleh, karena
+   * pemutar memakai navigasi itu untuk memuat dirinya sendiri.
+   */
+  function blocksProductSwitch(url) {
+    if (!sessionPath) return false;
+    if (typeof url !== 'string' || !url) return false;
+    var next;
+    try { next = new URL(url, location.href); } catch (e) { return false; }
+    if (next.origin !== location.origin) return false;
+    if (!isVodPath(next.pathname)) return false;
+    var from = vodProductId(sessionPath);
+    var to = vodProductId(next.pathname);
+    if (!from || !to) return false;
+    return from !== to;
+  }
+
+  /**
+   * Menahan perpindahan episode lewat `history`. Ini lapisan cadangan:
+   * yang utama adalah [guardNextRouter], karena Viu tetap memanggil
+   * `loadVod` setelah `router.push` selesai.
+   */
+  function guardNavigation() {
+    if (navGuardInstalled || typeof history === 'undefined') return;
+    navGuardInstalled = true;
+
+    function blocked(url) {
+      // Sengaja TIDAK memakai user activation: setelah layar disentuh,
+      // activation masih aktif beberapa detik, dan itu celah yang membuat
+      // auto-next lolos. Untuk pindah episode, pengguna kembali ke daftar
+      // di Home — yang diblokir hanya perpindahan di dalam pemutar.
+      return blocksProductSwitch(url);
+    }
+
+    ['pushState', 'replaceState'].forEach(function (name) {
+      var orig = history[name];
+      if (typeof orig !== 'function') return;
+      history[name] = function (state, title, url) {
+        if (blocked(url)) return undefined;
+        return orig.apply(this, arguments);
+      };
+    });
+  }
+
+  /**
+   * Menahan episode berikutnya SEBELUM `loadVod` dijalankan.
+   *
+   * Rantai auto-next Viu adalah `await router.push(url)` lalu
+   * `await loadVod(productId)`. Menahan URL saja tidak cukup: `loadVod`
+   * tetap mengganti sumber video, judul, dan header. Karena pemanggilnya
+   * menunggu promise, promise yang tidak pernah selesai membuat
+   * `loadVod` tidak pernah dipanggil sama sekali — halaman tetap di
+   * episode ini, tanpa error dan tanpa perubahan apa pun.
+   *
+   * `window.next.router` baru ada setelah hidrasi Next.js, jadi pemasangan
+   * diulang tiap tick sampai berhasil.
+   */
+  function guardNextRouter() {
+    if (routerGuardInstalled) return;
+    var router = null;
+    try {
+      if (window.next && window.next.router) router = window.next.router;
+    } catch (e) { router = null; }
+    if (!router || typeof router.push !== 'function') return;
+    routerGuardInstalled = true;
+    // Hanya `push`: itulah yang dipakai auto-next (`router.push` lalu
+    // `loadVod`). `replace` dipakai Viu untuk ganti bahasa/query dan tidak
+    // boleh ditahan sampai menggantung.
+    ['push'].forEach(function (name) {
+      var orig = router[name];
+      if (typeof orig !== 'function') return;
+      router[name] = function (url) {
+        if (blocksProductSwitch(url)) {
+          autoNextBlocked++;
+          return new Promise(function () {});
+        }
+        return orig.apply(router, arguments);
+      };
+    });
+    guardNavigation();
+  }
+
+  /**
+   * Mencatat episode tempat sesi berjalan begitu video benar-benar bisa
+   * diputar. Sebelum itu URL masih boleh berubah: Viu mengalihkan
+   * product_id API ke halaman kanoniknya saat memuat.
+   */
+  function noteSessionPath() {
+    if (sessionPath) return;
+    if (!isVodPath(location.pathname)) return;
+    var v = getVideo();
+    if (!v || !isFinite(v.duration) || v.duration < AD_MAX) return;
+    sessionPath = location.pathname;
+    guardNavigation();
+  }
+
+  /** Mencari elemen sampai ke shadow root terbuka dan iframe se-origin. */
+  function findDeep(sel) {
+    var found = null;
+    var roots = [document];
+    while (roots.length && !found) {
+      var root = roots.pop();
+      try { found = root.querySelector(sel); } catch (e) { found = null; }
+      if (found) break;
+      var nodes = [];
+      try { nodes = root.querySelectorAll('*'); } catch (e) { nodes = []; }
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        if (node.shadowRoot && roots.indexOf(node.shadowRoot) === -1) {
+          roots.push(node.shadowRoot);
+        }
+        if (node.tagName === 'IFRAME') {
+          var doc = null;
+          try { doc = node.contentDocument; } catch (e) { doc = null; }
+          if (doc && roots.indexOf(doc) === -1) roots.push(doc);
+        }
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Menutup kartu "Selanjutnya" milik Viu.
+   *
+   * Klik tombol X memanggil `dismissPanel` di React: `isPanelVisible`
+   * menjadi false, dan Viu hanya memanggil episode berikutnya selama
+   * `isPanelVisible` masih true. Kartu hanya dirender ulang pada detik
+   * yang sama, jadi klik diulang selama ia masih tampak.
+   *
+   * Menyembunyikan kartu dengan CSS TIDAK cukup: hitungannya tetap jalan
+   * dan episode berikutnya tetap dimuat.
+   */
+  function dismissAutoNextCard() {
+    var btn = null;
+    try { btn = document.querySelector(AUTO_NEXT_CARD); } catch (e) { btn = null; }
+    if (!btn && (finished || nearEnd || nearEndWindow())) {
+      if (Date.now() - autoNextScanAt > 500) {
+        autoNextScanAt = Date.now();
+        btn = findDeep(AUTO_NEXT_CARD);
+      }
+    }
+    if (!btn) return false;
+    // Snapshot sesi diambil sebelum Viu sempat memindahkan apa pun.
+    armEndGuard();
+    if (Date.now() - autoNextClickAt < AUTO_NEXT_CLICK_MS) return true;
+    autoNextClickAt = Date.now();
+    autoNextDismissed++;
+    try { btn.click(); } catch (e) {}
+    return true;
+  }
+
+  /** Kartu Viu muncul sekitar satu menit sebelum akhir; pindai lebih awal. */
+  function nearEndWindow() {
+    var v = getVideo();
+    if (!v || !isFinite(v.duration) || v.duration < AD_MAX) return false;
+    if (!isFinite(v.currentTime)) return false;
+    return v.duration - v.currentTime <= 300;
+  }
+
+
+  /**
+   * Apakah [v] masih video sesi yang sedang menuju akhir. Sama seperti
+   * [sameSessionVideo]: sumber dulu, elemen sebagai cadangan.
+   */
+  function sameNearEndVideo(v) {
+    if (!v) return false;
+    var src = videoSrc(v);
+    if (nearEndSrc) return src !== '' && src === nearEndSrc;
+    return nearEndEl != null && v === nearEndEl && src === '';
+  }
+
+  /**
+   * Mengambil snapshot sesi sebelum Viu sempat memindahkan episode.
+   *
+   * Dipakai saat kartu "Selanjutnya" muncul (sekitar satu menit sebelum
+   * akhir) dan saat delapan detik terakhir. Snapshot inilah yang membuat
+   * sesi tetap terkunci pada durasi penuh kalau sumber video tetap
+   * berganti, sehingga rekaman tidak hilang.
+   */
+  function armEndGuard() {
+    if (nearEnd || finished) return;
+    var v = getVideo();
+    if (!v || !isFinite(v.duration) || v.duration < AD_MAX) return;
+    nearEnd = true;
+    nearEndEl = v;
+    nearEndSrc = videoSrc(v);
+    nearEndTail = v.duration;
+    nearEndPath = location.pathname;
+    nearEndTitle = (typeof document !== 'undefined' && document.title) ? document.title : '';
+    guardNavigation();
+  }
+
+  /**
+   * Mengunci perpindahan sejak beberapa detik sebelum akhir. Video tetap
+   * berjalan sampai frame terakhir; yang ditahan hanya navigasi dan
+   * episode lain. Kunci ini sengaja "latch": sekali aktif, ia baru dilepas
+   * oleh seek mundur, Reset, atau pindah halaman.
+   */
+  function checkNearEnd() {
+    if (nearEnd) return;
+    var v = getVideo();
+    if (!v || !isFinite(v.duration) || v.duration < AD_MAX) return;
+    if (v.duration - v.currentTime > END_WINDOW) return;
+    armEndGuard();
+  }
+
+  /**
+   * Kalau Viu mengganti sumber video tanpa memindahkan URL, video asing itu
+   * dijeda. Sesi dikunci di durasi penuh supaya transkrip tidak hilang.
+   * Dipanggil hanya setelah sesi selesai; sebelum `ended` video dibiarkan
+   * berjalan sampai frame terakhir.
+   */
+  function guardForeignPlayback() {
+    if (!finished) return;
+    var list = allVideos();
+    for (var i = 0; i < list.length; i++) {
+      var v = list[i];
+      if (!v || v.tagName !== 'VIDEO') continue;
+      if (sameSessionVideo(v)) continue;
+      suppressPauseUntil = Date.now() + 1200;
+      try { if (!v.paused) v.pause(); } catch (e) {}
+    }
+  }
+
+  /**
+   * Jaring pengaman kalau Viu mengganti sumber tepat sebelum `ended`
+   * sempat tertangkap. Selama video 726 masih ada dan sumbernya belum
+   * berubah, tidak ada yang disentuh: durasi tidak boleh terpotong. Kalau
+   * sumbernya sudah berganti atau elemennya hilang, sesi dikunci memakai
+   * snapshot pra-akhir (durasi penuh) lalu episode baru dijeda.
+   */
+  function checkSourceSwap() {
+    if (finished || !nearEnd) return;
+    var el = nearEndEl;
+    if (el && el.isConnected) {
+      var src = videoSrc(el);
+      if (!nearEndSrc || !src || src === nearEndSrc) return;
+    }
+    var v = getVideo();
+    if (v) {
+      if (sameNearEndVideo(v)) return;
+      finishSession(v);
+      return;
+    }
+    // Elemen sesi hilang dan belum ada video pengganti yang berjalan.
+    if (!el || !el.isConnected) finishSession(el);
+  }
+
+  function onVideoEnded(ev) {
+    var v = ev && ev.target;
+    if (!v || v.tagName !== 'VIDEO' || finished) return;
+    // Baru saja dilepas untuk diputar ulang: `ended` yang tertinggal dari
+    // pemutaran sebelumnya tidak boleh mengunci sesi lagi.
+    if (Date.now() - releasedAt < 2500) return;
+    var d = v.duration;
+    if (!isFinite(d) || d <= 0) return;
+    // Iklan/pratinjau yang selesai bukan akhir tayangan.
+    if (d < AD_MAX) return;
+    // Hentikan handler `ended` milik Viu sebelum ia sempat memuat episode
+    // berikutnya. Tanpa ini Viu sudah mengganti sumber sebelum polling
+    // kita sempat bereaksi.
+    if (ev && ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+    if (ev && ev.preventDefault) ev.preventDefault();
+    finishSession(v);
+  }
+
+  /** Jaring pengaman kalau event `ended` tidak sampai ke listener. */
+  function checkEnded() {
+    var v = getVideo();
+    if (!v || !v.ended || v.seeking) return;
+    onVideoEnded({ target: v });
+  }
+
+  /** Seek mundur pada video yang sama adalah permintaan menonton ulang. */
+  function onVideoSeeking(ev) {
+    var v = ev && ev.target;
+    if (!v || v.tagName !== 'VIDEO') return;
+    var d = isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+    // Seek mundur yang jauh dari akhir membatalkan kunci "mendekati akhir",
+    // jadi pengguna bisa keluar atau pindah episode seperti biasa.
+    if (nearEnd && !finished && d > 0 && v.currentTime < d - END_WINDOW) {
+      nearEnd = false;
+      nearEndSrc = '';
+      nearEndTail = 0;
+      nearEndPath = '';
+      nearEndTitle = '';
+      nearEndEl = null;
+    }
+    if (!finished) return;
+    if (!sameSessionVideo(v)) return;
+    var tail = d > 0 ? d : finishedTail;
+    if (v.currentTime < tail - 1) releaseFinished();
+  }
+
   function checkRoute() {
     if (location.pathname === lastPath) return false;
     lastPath = location.pathname;
+    // Perpindahan episode seharusnya sudah ditahan. Kalau toh lolos, kunci
+    // sesi di posisi terakhir dan jangan hapus rekaman.
+    if ((finished || nearEnd) && isVodPath(lastPath)) {
+      if (!finished) finishSession(null);
+      return false;
+    }
+    // Pindah ke halaman non-VOD (Home) berarti sesi benar-benar ditinggalkan.
+    finished = false;
+    finishedSnapshot = null;
+    finishedPath = '';
+    finishedSrc = '';
+    finishedTail = 0;
+    finishedEl = null;
+    nearEnd = false;
+    nearEndSrc = '';
+    nearEndTail = 0;
+    nearEndPath = '';
+    nearEndTitle = '';
+    nearEndEl = null;
+    // Kembali ke daftar berarti sesi ditinggalkan. Episode yang dibuka
+    // lewat daftar Home boleh berjalan normal karena itu halaman baru.
+    sessionPath = '';
+    autoNextDismissed = 0;
+    autoNextBlocked = 0;
+    autoNextClickAt = 0;
     userPaused = false;
     suppressPauseUntil = 0;
     cues.length = 0;
@@ -1090,6 +1646,20 @@ object RecorderScript {
 
   function tick() {
     checkRoute();
+    noteSessionPath();
+    guardNextRouter();
+    dismissAutoNextCard();
+    if (finished) {
+      // Transkrip dibekukan. Satu-satunya tugas yang tersisa adalah
+      // memastikan episode berikutnya tidak berjalan diam-diam.
+      guardForeignPlayback();
+      return;
+    }
+    checkEnded();
+    checkNearEnd();
+    // Sumber berganti tepat sebelum `ended`? Kunci sesi, jangan potong
+    // durasi video yang masih berjalan.
+    checkSourceSwap();
     scan();
     watchSeekRecovery();
   }
@@ -1122,10 +1692,38 @@ object RecorderScript {
     var v = ev && ev.target;
     if (!v || v.tagName !== 'VIDEO') return;
     userPaused = false;
+    if (!finished) return;
+    if (!sameSessionVideo(v)) {
+      // Episode berikutnya: hentikan sebelum sempat berjalan.
+      suppressPauseUntil = Date.now() + 1500;
+      try { v.pause(); } catch (e) {}
+      return;
+    }
+    // Episode yang sama diputar ulang: lepas kunci supaya rekaman bisa
+    // dilanjutkan. Cue lama dikenali sebagai cue ulang, bukan cue baru.
+    releaseFinished();
   }
 
+  /**
+   * Episode berikutnya kadang dimuat lalu diputar sebelum tick berikutnya
+   * sempat berjalan. Event media dipakai untuk mematikannya seketika,
+   * bukan menunggu polling 40 ms.
+   */
+  function onForeignMedia(ev) {
+    if (!finished) return;
+    var v = ev && ev.target;
+    if (!v || v.tagName !== 'VIDEO') return;
+    if (sameSessionVideo(v)) return;
+    suppressPauseUntil = Date.now() + 1500;
+    try { if (!v.paused) v.pause(); } catch (e) {}
+  }
+
+  window.addEventListener('ended', onVideoEnded, true);
   document.addEventListener('pause', onVideoPause, true);
   document.addEventListener('play', onVideoPlay, true);
+  document.addEventListener('loadedmetadata', onForeignMedia, true);
+  document.addEventListener('playing', onForeignMedia, true);
+  document.addEventListener('seeking', onVideoSeeking, true);
   document.addEventListener('seeking', flushLive, true);
   document.addEventListener('seeked', flushLive, true);
   document.addEventListener('seeking', armSeekRecovery, true);
@@ -1303,12 +1901,32 @@ object RecorderScript {
   }
 
   window.ViuSubRecorder = {
-    version: '5.11',
+    version: '5.15',
     payload: payload,
     // Memakai getVideo() yang sama dengan perekam, bukan video pertama di
     // DOM: halaman Viu bisa punya lebih dari satu <video> (iklan/pratinjau),
     // dan yang pertama belum tentu yang sedang tampil.
     seek: function (seconds) {
+      // Menonton ulang setelah tayangan selesai: lepas kunci untuk video
+      // yang sama. Kalau halaman toh sudah pindah episode, tolak lompatan
+      // supaya tidak menyek ke video yang salah.
+      if (finished) {
+        if (finishedPath && location.pathname !== finishedPath &&
+            isVodPath(location.pathname)) {
+          return JSON.stringify({ ok: false, reason: 'finished' });
+        }
+        releaseFinished();
+      }
+      // Lompatan dari transkrip adalah permintaan menonton, bukan akhir
+      // tayangan: kunci "mendekati akhir" ikut dilepas.
+      if (nearEnd) {
+        nearEnd = false;
+        nearEndSrc = '';
+        nearEndTail = 0;
+        nearEndPath = '';
+        nearEndTitle = '';
+        nearEndEl = null;
+      }
       var v = seekVideo(seconds);
       if (!v) return JSON.stringify({ ok: false, reason: 'no-video' });
       userPaused = false;
@@ -1515,6 +2133,24 @@ object RecorderScript {
       });
     },
     reset: function () {
+      // Reset memulai sesi baru: kunci akhir tayangan ikut dibersihkan.
+      finished = false;
+      finishedPath = '';
+      finishedSrc = '';
+      finishedTail = 0;
+      finishedSnapshot = null;
+      finishedEl = null;
+      nearEnd = false;
+      nearEndSrc = '';
+      nearEndTail = 0;
+      nearEndPath = '';
+      nearEndTitle = '';
+      nearEndEl = null;
+      // Reset memulai sesi baru: hitungan penjaga auto-next ikut mulai dari
+      // nol. Penjaga router tetap terpasang supaya tidak terpasang ganda.
+      autoNextDismissed = 0;
+      autoNextBlocked = 0;
+      autoNextClickAt = 0;
       // Overlay subtitle dari posisi lama bisa masih tampil beberapa saat
       // setelah reset. Tandai teksnya sebagai basi supaya scan di awal
       // video tidak mencatatnya sebagai cue baru di detik 0.
@@ -1558,6 +2194,15 @@ object RecorderScript {
   }
 })();
 """
+
+    /**
+     * Skrip utuh yang dipasang ke halaman.
+     *
+     * Dipecah dua karena satu konstanta string di class file JVM dibatasi
+     * 65.535 byte (modified UTF-8), sedangkan skrip ini lebih besar.
+     * Penggabungan terjadi sekali saat pertama dipakai.
+     */
+    val SOURCE: String = SOURCE_HEAD + SOURCE_TAIL
 
     /**
      * Membaca state perekam untuk ditampilkan di panel app.

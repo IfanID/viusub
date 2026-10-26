@@ -46,6 +46,7 @@
     <string name="chk_keep_screen_on">Layar tetap nyala saat merekam</string>
 
     <string name="panel_idle">Menunggu subtitle…</string>
+    <string name="panel_finished">Tayangan selesai · rekaman tetap tersimpan</string>
     <string name="cue_preview_label">CUE %1$d · PRATINJAU</string>
     <string name="cue_preview_close_hint">KETUK UNTUK TUTUP</string>
     <string name="cue_preview_waiting">Menunggu subtitle…</string>
@@ -82,6 +83,7 @@
     <string name="msg_seek_failed">Tidak bisa melompat — video tidak ditemukan.</string>
     <string name="msg_seek_stalled">Video belum mulai berjalan setelah lompatan.</string>
     <string name="msg_seek_timeout">Lompatan belum berhasil — coba lagi.</string>
+    <string name="msg_session_finished">Tayangan sudah selesai. Putar ulang video ini atau kembali ke daftar episode.</string>
 
     <string name="jump_status_sending">Menuju %1$s…</string>
     <string name="jump_status_gap">Isi celah · menuju %1$s…</string>
@@ -103,9 +105,11 @@
     <string name="export_gap_title">Masih ada celah rekaman</string>
     <string name="export_gap_message">Celah %1$s → %2$s belum terisi dan %3$d cue belum bernomor. Tetap simpan?</string>
     <string name="export_gap_message_empty">Celah %1$s → %2$s belum terisi. Cue setelahnya bisa belum bernomor. Tetap simpan?</string>
+    <string name="export_gap_message_srt">Celah %1$s → %2$s belum terisi. %3$d cue belum bernomor dan tidak ikut disimpan di SRT. Tetap simpan?</string>
     <string name="export_gap_continue">Tetap simpan</string>
     <string name="msg_save_cancelled">Folder tidak dipilih — penyimpanan dibatalkan.</string>
     <string name="msg_nothing">Belum ada cue yang terekam.</string>
+    <string name="msg_srt_unverified_only">Belum ada cue bernomor. SRT hanya berisi cue yang sudah bernomor; simpan JSON untuk ikut menyertakan cue bertanda ?.</string>
     <string name="msg_folder_ok">Tersimpan ke folder: %1$s</string>
     <string name="msg_folder_denied">Folder itu tidak bisa ditulis. Coba folder lain.</string>
     <string name="msg_saved">Tersimpan: %1$s</string>

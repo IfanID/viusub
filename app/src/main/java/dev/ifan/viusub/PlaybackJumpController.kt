@@ -186,6 +186,10 @@ class PlaybackJumpController(
                 }
                 "no-video" -> retryOrFail(request, VIDEO_LIMIT, "failed")
                 "seek-error" -> retryOrFail(request, SEEK_LIMIT)
+                // Sesi tayangan sudah selesai dan halaman sudah pindah
+                // episode. Tidak ada gunanya mengulang: pengguna harus
+                // memutar ulang di halaman yang benar.
+                "finished" -> fail("finished")
                 else -> {
                     installScripts()
                     retryOrFail(request, SCRIPT_LIMIT)

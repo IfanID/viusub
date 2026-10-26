@@ -21,6 +21,13 @@ object PayloadFormatter {
 
     fun status(p: VtrPayload): String = buildString {
         append("cue=").append(p.cueCount)
+        // Rincian supaya selisih antara jumlah baris dan jumlah cue yang
+        // sah langsung kelihatan: cue setelah celah belum bernomor.
+        val unverified = (p.cueCount - p.numberedCount).coerceAtLeast(0)
+        if (unverified > 0) {
+            append(" · ").append(p.numberedCount).append(" bernomor")
+            append(" · ").append(unverified).append(" belum bernomor")
+        }
         if (p.restoredCount > 0 && p.cueCount == p.restoredCount) {
             append("  (dipulihkan)")
         }
@@ -34,6 +41,24 @@ object PayloadFormatter {
         append(" / ")
         append(p.total ?: "--:--:--")
         if (!p.remaining.isNullOrBlank()) append("  sisa ").append(p.remaining)
+
+        append('\n')
+        append(
+            when {
+                p.finished -> "sesi selesai · auto-next ditahan"
+                p.nearEnd -> "detik akhir · auto-next ditahan"
+                else -> "sesi merekam"
+            },
+        )
+
+        if (p.autoNextDismissed > 0 || p.autoNextBlocked > 0) {
+            append('\n')
+            append("auto-next: ")
+            append(p.autoNextDismissed).append(" kartu ditutup")
+            if (p.autoNextBlocked > 0) {
+                append(", ").append(p.autoNextBlocked).append(" pindah episode ditahan")
+            }
+        }
 
         append('\n')
         append("cakupan ").append(p.coveragePercent ?: "-").append('%')
@@ -145,8 +170,13 @@ object PayloadFormatter {
      *              supaya mata tahu itu bukan yang sedang live;
      *   ""       — belum ada cue sama sekali (pemanggil menampilkan
      *              "Menunggu subtitle…").
+     *
+     * Kalau sesi sudah mencapai akhir tayangan, [finishedLabel] dipakai
+     * sebagai ganti baris cue: rekaman tetap tersimpan dan video yang sama
+     * masih bisa diputar ulang.
      */
-    fun liveLine(p: VtrPayload): String {
+    fun liveLine(p: VtrPayload, finishedLabel: String = ""): String {
+        if (p.finished && finishedLabel.isNotBlank()) return finishedLabel
         p.pendingCues.firstOrNull()?.let {
             return if (it.replay) "$REPLAY ${it.text}" else "$RUNNING ${it.text}"
         }

@@ -127,8 +127,9 @@ terpisah.
   layar dibuka tanpa data dari Home.
   Statusnya jujur lewat awalan dan warna: `▸ teks` cyan saat cue benar-benar
   sedang tampil; `✓ teks` redup saat cue itu sudah lewat (bar tidak
-  dikosongkan supaya tidak berkedip di setiap jeda); dan "Menunggu
-  subtitle…" redup saat belum ada cue sama sekali.
+  dikosongkan supaya tidak berkedip di setiap jeda); "Menunggu
+  subtitle…" redup saat belum ada cue sama sekali; dan "Tayangan selesai ·
+  rekaman tetap tersimpan" setelah video habis.
 - **Panel kontrol terpisah di dasar layar**: Simpan SRT, Simpan JSON,
   Pilih Folder, Reset, Status, dan centang "Layar tetap nyala". Tombol
   Status membuka dialog berisi diagnostik lengkap (posisi, cakupan,
@@ -336,8 +337,8 @@ panjang akan berisi 30 cue terakhir saja tanpa peringatan apa pun.
 
 | Tombol | Keluaran |
 |---|---|
-| Simpan JSON | `<judul episode>.json` — JSON mentah dari halaman, apa adanya |
-| Simpan SRT | `<judul episode>.srt` |
+| Simpan JSON | `<judul episode>.json` — cue bernomor di `cues`, cue `?` di `unverifiedCues` |
+| Simpan SRT | `<judul episode>.srt` — hanya cue bernomor |
 
 Nama berkas diambil dari judul episode, dipotong pada pemisah `｜` dan
 dibersihkan dari karakter terlarang oleh `FileNames` (maks 80 karakter):
@@ -354,14 +355,29 @@ SRT disusun di `SrtWriter` dan sudah pernah dibandingkan byte-identic dengan
 file dari userscript. Cue yang masih berjalan saat ekspor (`pendingCues`)
 ikut ditulis, asal posisinya memang setelah cue sebelumnya.
 
-JSON disimpan apa adanya, bukan dimodelkan ulang di Kotlin, supaya tidak ada
-field yang hilang.
+SRT hanya memuat **cue bernomor**, selalu diurutkan ulang 1..N. Cue bertanda
+`?` berasal dari celah yang belum ditonton: nomornya belum sah, dan format SRT
+tidak punya cara menandai nomor yang belum pasti. Kalau sesi belum punya satu
+pun cue bernomor, SRT tidak dibuat dan muncul pesan agar memakai JSON.
+
+JSON tetap menyimpan semua baris, tetapi dipisahkan supaya nomor palsu tidak
+ikut masuk:
+
+```json
+"cueCount": 25,
+"numberedCount": 7,
+"unverifiedCount": 18,
+"cues":           [ { "i": 1, … }, …, { "i": 7, … } ],
+"unverifiedCues": [ { "start": "01:32:31.120", "end": "…", "text": "…" } ]
+```
+
+Cue di `unverifiedCues` sengaja tidak punya field `i`. Field lain dari halaman
+(`holes`, `provisionalCount`, `pendingCues`, `filters`) tetap ditulis apa
+adanya, jadi tidak ada data mentah yang hilang.
 
 Kalau masih ada celah rekaman, tombol Simpan SRT/JSON lebih dulu menampilkan
 peringatan berisi rentang celah dan jumlah cue yang belum bernomor. Ekspor
-tetap boleh dilanjutkan. SRT selalu memakai nomor 1..N karena itu syarat
-format; JSON membawa `provisional` per cue, `holes`, dan `provisionalCount`
-supaya ketidakkepastian nomor tidak hilang dari data mentah.
+tetap boleh dilanjutkan.
 
 Folder dicek lebih dulu saat menyimpan: kalau belum pernah dipilih, pemilih
 folder langsung terbuka dan ekspor dilanjutkan otomatis setelah folder
@@ -423,8 +439,77 @@ terbaca. Karena itu perekam melacak rentang video yang benar-benar ditonton
   video diputar lagi dari awal. Nomor cue mulai lagi dari 1 dan cakupan
   dihitung dari nol. Kalau sudah ada cue, Reset meminta konfirmasi lebih
   dulu supaya rekaman panjang tidak terhapus karena satu ketukan.
+- Kotak **CUE** dan badge kartu hanya menghitung cue bernomor. Baris `?`
+  tetap tampil di transkrip dan tetap tersimpan di JSON, tetapi tidak
+  menambah angka CUE, tidak masuk `cues`, dan tidak ikut SRT.
+- Nomor cue live dihitung dari posisi waktunya, bukan jumlah baris. Setelah
+  melompat ke ujung lalu kembali ke awal, cue baru di detik 12 tampil
+  sebagai 8 — bukan "jumlah seluruh baris + 1".
 - Garis lama "N cue baru sejak lompat ke …" tetap dipakai untuk lompatan yang
   tidak membuat celah; saat ada celah, baris celah yang tampil.
+
+### Akhir tayangan
+
+Video dibiarkan berjalan sampai benar-benar habis: tidak ada detik yang
+dipotong dan tidak ada jeda sebelum akhir. Begitu event `ended` datang —
+dengan `v.ended` dari polling 40 ms sebagai cadangan — sesi dikunci:
+
+- handler `ended` milik Viu dihentikan (`stopImmediatePropagation`) supaya
+  episode berikutnya tidak pernah dimuat;
+- cue terakhir ditutup tepat di `duration`, bukan beberapa detik sebelumnya;
+- posisi akhir sama dengan durasi penuh, jadi sisa `00:00:00`;
+- ekor video ikut dihitung sebagai cakupan;
+- statistik dan judul dibekukan supaya tidak berubah kalau episode
+  berikutnya sudah terpasang di belakang layar;
+- Viu ditahan agar tidak pindah episode, **sejak video mulai diputar**
+  (bukan hanya di akhir):
+  - kartu "Selanjutnya / Berikutnya dalam (5)" muncul jauh sebelum akhir,
+    tepat di titik kredit. Untuk episode 726 kartunya tampil di `1:31:58`
+    dari durasi `1:32:56`, lalu hitungan 5 detiknya memanggil episode
+    berikutnya di `1:32:03` — hampir satu menit sebelum video habis.
+    Kartu itu ditutup otomatis lewat tombol X-nya
+    (`data-autoid="auto_next_episode_dismiss_button"`); selama
+    `isPanelVisible` masih `false`, Viu tidak pernah memanggil episode
+    berikutnya;
+  - Viu memindahkan episode dengan `await router.push(url)` lalu
+    `await loadVod(productId)`. `router.push`/`replace` ditahan untuk
+    `productId` di `/vod/<productId>/` yang berbeda dan tidak pernah
+    selesai, sehingga `loadVod` tidak pernah dijalankan: URL, judul,
+    header, dan sumber video tetap di episode ini;
+  - `history.pushState`/`replaceState` juga diabaikan sebagai lapisan
+    cadangan; setelah sesi selesai, navigasi main-frame ke `productId` lain
+    ikut ditolak;
+  - gesture pengguna **tidak** dipakai sebagai pengecualian: setelah layar
+    disentuh, WebView masih menganggap navigasi berikutnya "dari pengguna"
+    selama beberapa detik, dan itu celah yang membuat auto-next lolos;
+  - kalau sumber video tetap diganti, video episode baru langsung dijeda;
+  - iklan/pratinjau pendek (di bawah 2 menit) yang selesai tidak dianggap
+    akhir tayangan.
+  Pindah episode dilakukan lewat daftar di layar Home; navigasi dari Home
+  (non-VOD ke VOD) tetap normal.
+
+Penjaga delapan detik terakhir tetap ada sebagai lapisan terakhir: sejak
+detik itu kunci "mendekati akhir" aktif, snapshot durasi penuh diambil, dan
+`ended` ditahan sebelum handler Viu berjalan. Snapshot yang sama juga
+diambil lebih awal begitu kartu "Selanjutnya" muncul, supaya rekaman tidak
+hilang kalau Viu masih sempat menukar sumber video.
+
+Identitas sesi ditentukan oleh **sumber video** (`currentSrc` yang diambil
+saat kartu "Selanjutnya" muncul atau delapan detik sebelum akhir), bukan
+durasi. Episode berurutan bisa berdurasi
+hampir sama — 726 `1:32:57` dan 727 yang cuma beda satu-dua detik — dan
+kalau durasi dipakai sebagai penanda, episode berikutnya dianggap "video
+yang sama" lalu dibiarkan berjalan. Snapshot sumber itu tidak pernah
+ditimpa oleh video yang sedang terpasang, sehingga episode baru selalu
+dikenali sebagai asing dan dijeda seketika pada event
+`play`/`playing`/`loadedmetadata`, bukan menunggu polling.
+
+Rekaman tetap utuh. Video yang sama masih bisa diputar ulang lewat tombol
+play, seek bar, atau dengan mengetuk baris transkrip. Seek mundur melepas
+kunci, cue yang tampil lagi dikenali `↺` dan tidak digandakan, dan bar live
+menampilkan "Tayangan selesai · rekaman tetap tersimpan". Pindah episode
+tetap bisa lewat daftar di layar Home — yang diblokir hanya perpindahan
+otomatis di dalam pemutar. Reset memulai sesi yang benar-benar baru.
 
 ### Filter kandidat
 
@@ -492,7 +577,20 @@ hasilnya sendiri.
 ## Batasan yang diketahui
 
 - **Rekaman hilang saat halaman dimuat ulang.** Tidak ada autosave. Ini
-  konsekuensi langsung dari penghapusan `localStorage`.
+  konsekuensi langsung dari penghapusan `localStorage`. Episode berikutnya
+  yang diputar otomatis tidak lagi termasuk penyebabnya: perpindahan itu
+  ditahan setelah `ended` (lihat **Akhir tayangan**), dan pindah episode
+  secara sengaja lewat Home tetap memulai sesi baru.
+- **Pindah episode di dalam pemutar tidak bisa.** Selama sesi berjalan,
+  perpindahan ke `/vod/<productId>` lain di dalam pemutar ditahan — termasuk
+  klik daftar episode di halaman Viu — tanpa pesan, supaya layar tidak
+  terganggu. Daftar episode di layar Home memuat halaman baru, jadi tetap
+  normal.
+- **Putar ulang harus di video yang sama.** Lompatan ke episode lain setelah
+  tayangan selesai ditolak dengan pesan "Tayangan sudah selesai"; kembali ke
+  daftar episode untuk memilih yang berikutnya. Kalau Viu terlanjur
+  mengganti sumber sebelum sempat ditahan, video 726 harus dibuka ulang
+  (sesi baru) — transkrip lama tetap bisa diekspor lebih dulu.
 - **Fullscreen native hanya menampilkan permukaan video.** Kalau overlay
   subtitle Viu berada di luar elemen `<video>`, subtitle tidak ikut terlihat
   di layar penuh. Rekaman tetap jalan karena `scan()` membaca DOM, bukan
