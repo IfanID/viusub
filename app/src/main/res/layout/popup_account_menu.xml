@@ -1,0 +1,51 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="248dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_popup_menu"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:id="@+id/menuOpenViu"
+        android:layout_width="match_parent"
+        android:layout_height="62dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_viu_account" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:text="@string/menu_open_viu"
+                android:textColor="@color/panel_text"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="@string/menu_open_viu_desc"
+                android:textColor="@color/text_tertiary"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

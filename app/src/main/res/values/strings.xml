@@ -113,4 +113,20 @@
     <string name="msg_folder_ok">Tersimpan ke folder: %1$s</string>
     <string name="msg_folder_denied">Folder itu tidak bisa ditulis. Coba folder lain.</string>
     <string name="msg_saved">Tersimpan: %1$s</string>
+
+    <string name="home_menu_desc">Menu</string>
+    <string name="menu_open_viu">Buka Viu</string>
+    <string name="menu_open_viu_desc">Login &amp; jelajah Viu</string>
+
+    <string name="dns_info_desc">Info DNS &amp; iklan</string>
+    <string name="dns_info_title">Bebas iklan</string>
+    <string name="dns_info_subtitle">PAKAI DNS PRIBADI ANDROID</string>
+    <string name="dns_info_body">ViuSub tidak bisa memblokir iklan sendiri. Aktifkan DNS pribadi AdGuard supaya iklan Viu hilang.</string>
+    <string name="dns_info_host">dns.adguard-dns.com</string>
+    <string name="dns_info_copy">Salin</string>
+    <string name="dns_info_open">Buka pilih DNS pribadi</string>
+    <string name="dns_info_note">Tempel di kolom Nama host. Berlaku untuk seluruh HP; perekam dan stream tidak diubah.</string>
+    <string name="dns_info_copied">Hostname disalin: %1$s</string>
+    <string name="dns_info_copy_failed">Clipboard tidak tersedia.</string>
+    <string name="dns_info_no_screen">Layar DNS pribadi tidak ditemukan — buka Setelan → Jaringan &amp; internet.</string>
 </resources>

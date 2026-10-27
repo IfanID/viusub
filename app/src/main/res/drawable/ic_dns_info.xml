@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ikon pembuka info DNS: perisai bergaris blokir, sengaja berbeda dari
+  ikon akun yang membuka halaman Viu. Goresan tipis supaya senada dengan
+  ikon lain di kepala Home.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:tint="@color/panel_accent"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M12,2.6L4.6,5.9V11c0,4.8 3.2,9.3 7.4,10.5 4.2,-1.2 7.4,-5.7 7.4,-10.5V5.9L12,2.6z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M7.6,7.6L16.4,16.4"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeLineCap="round"
+        android:strokeWidth="1.7" />
+</vector>

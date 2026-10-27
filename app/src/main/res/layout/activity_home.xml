@@ -67,15 +67,26 @@
         </LinearLayout>
 
         <ImageButton
+            android:id="@+id/btnDnsInfo"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_icon_button"
+            android:contentDescription="@string/dns_info_desc"
+            android:padding="10dp"
+            android:src="@drawable/ic_dns_info"
+            android:tooltipText="@string/dns_info_desc" />
+
+        <ImageButton
             android:id="@+id/btnViuLogin"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/bg_icon_button"
-            android:contentDescription="@string/viu_login"
+            android:contentDescription="@string/home_menu_desc"
             android:padding="10dp"
-            android:src="@drawable/ic_viu_account"
-            android:tooltipText="@string/viu_login" />
+            android:src="@drawable/ic_menu"
+            android:tooltipText="@string/home_menu_desc" />
 
         <FrameLayout
             android:layout_width="44dp"

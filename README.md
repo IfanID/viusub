@@ -52,10 +52,15 @@ diurutkan dari episode terbaru ke yang terlama.
 ```
 
 - **Kepala Home** memakai eyebrow cyan `VIUSUB · REKAM SUBTITLE`, judul
-  tebal, tombol **Masuk Viu** berbentuk ikon akun, dan tombol muat ulang
-  bulat. Saat memuat, ikon muat ulang meredup dan spinner cyan berputar di
-  tengahnya. Tombol Viu membuka halaman login penuh tanpa meninggalkan app;
-  sesi cookie-nya dipakai lagi oleh pemutar di `MainActivity`.
+  tebal, tombol menu tiga garis, dan tombol muat ulang bulat. Saat memuat,
+  ikon muat ulang meredup dan spinner cyan berputar di tengahnya. Tombol
+  menu membuka popup berisi **Buka Viu**, yang menampilkan halaman login
+  penuh tanpa meninggalkan app; sesi cookie-nya dipakai lagi oleh pemutar
+  di `MainActivity`. Di samping kiri tombol menu ada ikon perisai terpisah:
+  menunya menjelaskan bahwa iklan Viu hanya bisa dihilangkan lewat DNS
+  pribadi, lalu tombol **Buka pilih DNS pribadi** menyalin
+  `dns.adguard-dns.com` dan langsung membuka layar Private DNS Android.
+  Tidak ada sakelar VPN di aplikasi.
 - **Header tahun menempel** di atas saat digulir, dan terdorong ke atas saat
   tahun berikutnya mendekat (`StickyYearOverlay`). Header ini adalah view
   asli di atas daftar, bukan gambar di kanvas, jadi selalu rata dengan tepi

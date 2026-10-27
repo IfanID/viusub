@@ -1,15 +1,22 @@
 package dev.ifan.viusub
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.Gravity
 import android.view.MotionEvent
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
+import android.widget.PopupWindow
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -84,6 +91,12 @@ class HomeActivity : AppCompatActivity() {
     /** Warna titik status untuk pesan dasar di atas. */
     private var baseTone: Int = R.color.panel_accent
 
+    /** Popup menu ikon akun; disimpan agar bisa ditutup dari onPause. */
+    private var accountMenu: PopupWindow? = null
+
+    /** Popup info DNS di bawah ikon perisai. */
+    private var dnsInfoMenu: PopupWindow? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityHomeBinding.inflate(layoutInflater)
@@ -97,9 +110,8 @@ class HomeActivity : AppCompatActivity() {
         stickyYear = StickyYearOverlay(binding.list, binding.stickyYear, adapter)
 
         binding.btnRefresh.setOnClickListener { refresh() }
-        binding.btnViuLogin.setOnClickListener {
-            viuLoginLauncher.launch(Intent(this, ViuWebActivity::class.java))
-        }
+        binding.btnViuLogin.setOnClickListener { showAccountMenu() }
+        binding.btnDnsInfo.setOnClickListener { showDnsInfoMenu() }
 
         binding.search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
@@ -371,6 +383,154 @@ class HomeActivity : AppCompatActivity() {
             putExtra(MainActivity.EXTRA_COVER, episode.coverUrl)
         }
         startActivity(intent)
+    }
+
+    /**
+     * Menu kecil di bawah ikon akun.
+     *
+     * Isinya hanya "Buka Viu" — halaman Viu lengkap seperti sebelumnya.
+     * Tetap memakai launcher yang sama, jadi login yang berhasil
+     * (RESULT_OK) masih memicu muat ulang daftar episode.
+     */
+    private fun showAccountMenu() {
+        val view = layoutInflater.inflate(R.layout.popup_account_menu, null)
+        val density = resources.displayMetrics.density
+        val popup = PopupWindow(
+            view,
+            (248 * density).toInt(),
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true,
+        ).apply {
+            // Latar jendela memakai kartu yang sama dengan isinya supaya
+            // bayangan elevation mengikuti sudut membulat, bukan kotak.
+            setBackgroundDrawable(
+                ContextCompat.getDrawable(this@HomeActivity, R.drawable.bg_popup_menu),
+            )
+            elevation = 10f * density
+            isOutsideTouchable = true
+            setOnDismissListener {
+                if (accountMenu === this) accountMenu = null
+            }
+        }
+
+        view.findViewById<View>(R.id.menuOpenViu).setOnClickListener {
+            popup.dismiss()
+            viuLoginLauncher.launch(Intent(this, ViuWebActivity::class.java))
+        }
+
+        // Menu menempel ke tepi kanan layar dengan sisa 12dp, bukan ke
+        // tepi ikon, supaya tidak ada celah di bawah tombol muat ulang.
+        val screen = resources.displayMetrics.widthPixels
+        val margin = (12 * density).toInt()
+        val location = IntArray(2)
+        binding.btnViuLogin.getLocationOnScreen(location)
+        val anchorRight = location[0] + binding.btnViuLogin.width
+        val xoff = maxOf(0, screen - margin - anchorRight)
+
+        accountMenu = popup
+        popup.showAsDropDown(binding.btnViuLogin, xoff, 10, Gravity.END)
+    }
+
+    /**
+     * Popup info iklan di bawah ikon perisai.
+     *
+     * ViuSub tidak memblokir iklan sendiri; satu-satunya jalan pintas yang
+     * jujur adalah DNS pribadi Android. Tombolnya menyalin hostname lalu
+     * membuka layar Private DNS supaya pengguna tinggal menempel.
+     */
+    private fun showDnsInfoMenu() {
+        val view = layoutInflater.inflate(R.layout.popup_dns_info, null)
+        val density = resources.displayMetrics.density
+        val screen = resources.displayMetrics.widthPixels
+        val margin = (12 * density).toInt()
+        val width = minOf((300 * density).toInt(), screen - margin * 2)
+        val popup = PopupWindow(
+            view,
+            width,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true,
+        ).apply {
+            setBackgroundDrawable(
+                ContextCompat.getDrawable(this@HomeActivity, R.drawable.bg_popup_menu),
+            )
+            elevation = 10f * density
+            isOutsideTouchable = true
+            setOnDismissListener {
+                if (dnsInfoMenu === this) dnsInfoMenu = null
+            }
+        }
+
+        view.findViewById<View>(R.id.btnCopyDns).setOnClickListener {
+            copyDnsHost()
+        }
+        view.findViewById<View>(R.id.btnOpenDns).setOnClickListener {
+            copyDnsHost()
+            popup.dismiss()
+            if (!openPrivateDns()) {
+                Toast.makeText(this, R.string.dns_info_no_screen, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // Ikon berada di kelompok kanan, jadi popup tumbuh ke kiri dari
+        // tepi kanan ikon. Kalau hasilnya melewati tepi layar, geser ke
+        // kanan seperlunya supaya tidak terpotong.
+        val location = IntArray(2)
+        binding.btnDnsInfo.getLocationOnScreen(location)
+        val anchorRight = location[0] + binding.btnDnsInfo.width
+        val xoff = maxOf(0, margin - (anchorRight - width))
+
+        dnsInfoMenu = popup
+        popup.showAsDropDown(binding.btnDnsInfo, xoff, 6, Gravity.END)
+    }
+
+    /** Menyalin hostname AdGuard supaya bisa ditempel di layar Private DNS. */
+    private fun copyDnsHost(): Boolean {
+        val host = getString(R.string.dns_info_host)
+        val manager = getSystemService(ClipboardManager::class.java)
+        if (manager == null) {
+            Toast.makeText(this, R.string.dns_info_copy_failed, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        manager.setPrimaryClip(ClipData.newPlainText("DNS hostname", host))
+        Toast.makeText(this, getString(R.string.dns_info_copied, host), Toast.LENGTH_SHORT).show()
+        return true
+    }
+
+    /**
+     * Membuka layar Private DNS Android.
+     *
+     * Nama aktivitasnya berbeda antar-ROM, jadi dicoba berurutan: action
+     * resmi, komponen AOSP, lalu Setelan Jaringan dan Setelan utama.
+     * Kegagalan di satu langkah tidak menghentikan percobaan berikutnya.
+     */
+    private fun openPrivateDns(): Boolean {
+        val candidates = listOf(
+            // Action ini tidak dipublikasikan di SDK, tetapi dipakai layar
+            // Private DNS AOSP; dicoba lebih dulu agar langsung ke tujuan.
+            Intent("android.settings.PRIVATE_DNS_SETTINGS"),
+            Intent().setComponent(
+                ComponentName(
+                    "com.android.settings",
+                    "com.android.settings.network.PrivateDnsSettingsActivity",
+                ),
+            ),
+            Intent(Settings.ACTION_WIRELESS_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+
+        for (intent in candidates) {
+            // Sengaja tanpa resolveActivity: di Android 11+ pembacaan paket
+            // bisa mengembalikan null walau layar setelan tetap bisa dibuka.
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (runCatching { startActivity(intent) }.isSuccess) return true
+        }
+        return false
+    }
+
+    override fun onPause() {
+        accountMenu?.dismiss()
+        dnsInfoMenu?.dismiss()
+        super.onPause()
     }
 
     override fun onDestroy() {
